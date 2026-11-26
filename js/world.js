@@ -1,7 +1,7 @@
 // 宮殿（シーン・部屋・ドア・家具・画像の管理と保存形式）
 import * as THREE from './lib/three.module.min.js';
 import { Surface, setAnisotropy, loadImage } from './surface.js';
-import { buildModel, CATALOG_BY_ID, mountRotationX, footprintHalf, TONES } from './furniture.js';
+import { buildModel, CATALOG_BY_ID, mountRotationX, footprintHalf, TONES, currentMonth } from './furniture.js';
 import { newId } from './storage.js';
 
 export const ROOM = { W: 8, D: 8, H: 3.2 };
@@ -114,13 +114,17 @@ export class Palace {
   }
 
   // ---------- 家具 ----------
-  addFurniture({ id, type, tone, host, x, y, rot = 0, scale = 1 }) {
+  addFurniture({ id, type, tone, host, x, y, rot = 0, scale = 1, state = null }) {
     const def = CATALOG_BY_ID[type];
     if (!def) return null;
     const furn = {
       kind: 'furniture', id: id || newId(), type, def, tone: tone || def.tone,
       root: new THREE.Group(), surfaces: {}, host: null, x: 0, y: 0, rot: 0, scale: 1,
+      state: { open: {}, light: true, ...(state ? JSON.parse(JSON.stringify(state)) : {}) },
+      openK: {},
     };
+    if (!furn.state.open) furn.state.open = {};
+    if (type === 'calendar' && !furn.state.month) furn.state.month = currentMonth();
     furn.root.userData.object = furn;
     this._buildFurnitureModel(furn, true);
     this.furniture.set(furn.id, furn);
@@ -129,15 +133,39 @@ export class Palace {
   }
 
   _buildFurnitureModel(furn, createSurfaces) {
-    const built = buildModel(furn.type, furn.tone);
+    const built = buildModel(furn.type, furn.tone, furn.state);
     const inner = built.group;
     inner.rotation.x = mountRotationX(furn.def.mount);
+    // 開閉できる部分
+    furn.parts = {};
+    for (const part of built.parts) {
+      furn.parts[part.name] = part;
+      part.obj.userData.partName = part.name;
+      if (furn.state.open[part.name] === undefined) furn.state.open[part.name] = (built.defaultOpen && built.defaultOpen[part.name]) || 0;
+      if (furn.openK[part.name] === undefined) furn.openK[part.name] = furn.state.open[part.name];
+      part.apply(furn.openK[part.name]);
+    }
+    // 明かり（発光している部分）は個別のマテリアルにして点灯・消灯できるようにする
+    furn.lights = [];
+    if (furn.type !== 'window') {
+      inner.traverse(o => {
+        if (o.isMesh && o.material.emissive && o.material.emissiveIntensity > 0 && o.material.emissive.getHex() !== 0) {
+          o.material = o.material.clone();
+          o.userData.partName = 'light';
+          furn.lights.push({ mesh: o, intensity: o.material.emissiveIntensity, color: o.material.color.clone() });
+        }
+      });
+    }
     inner.traverse(o => { if (o.isMesh) o.userData.target = { type: 'object', object: furn }; });
     for (const spec of built.surfaces) {
       let s = furn.surfaces[spec.name];
       if (!s && createSurfaces) {
+        // 小さな面でも書き込めるよう、最低限の解像度を確保する
+        const maxDim = Math.max(spec.w, spec.h);
+        const minPx = spec.hires || spec.mount === 'face' ? 1024 : 512;
+        const ppm = Math.min(Math.max(this.ppm, minPx / maxDim), 4096 / maxDim);
         s = new Surface({
-          key: `${furn.id}:${spec.name}`, width: spec.w, height: spec.h, ppm: this.ppm, kind: 'furniture',
+          key: `${furn.id}:${spec.name}`, width: spec.w, height: spec.h, ppm, kind: 'furniture',
           mount: spec.mount, acceptsImages: spec.acceptsImages, acceptsSmall: spec.acceptsSmall, owner: furn, label: spec.label,
         });
         furn.surfaces[spec.name] = s;
@@ -146,7 +174,7 @@ export class Palace {
       if (s) {
         s.group.position.set(...spec.pos);
         s.group.rotation.set(...spec.rot);
-        inner.add(s.group);
+        (spec.parent && furn.parts[spec.parent] ? furn.parts[spec.parent].obj : inner).add(s.group);
       }
     }
     if (furn.inner) {
@@ -158,6 +186,7 @@ export class Palace {
     furn.bounds = built.bounds;
     furn.half = footprintHalf(furn.def.mount, built.bounds);
     furn.animate = built.animate || null;
+    this.applyLight(furn);
   }
 
   setTone(furn, tone) {
@@ -168,13 +197,52 @@ export class Palace {
     this.dirty = true;
   }
 
-  // ---------- 画像 ----------
-  async addImage({ id, src, host, x, y, rot = 0, w, h, draw = null, scale = 1, isText = false }) {
-    const img = await loadImage(src);
-    return this.addImageFromElement({ id, src, el: img, host, x, y, rot, w, h, draw, scale, isText });
+  // カレンダーの月など、形が変わる設定
+  setProp(furn, key, value) {
+    furn.state[key] = value;
+    this._buildFurnitureModel(furn, false);
+    this.dirty = true;
   }
 
-  async addImageFromElement({ id, src, el, host, x, y, rot = 0, w, h, draw = null, scale = 1, isText = false }) {
+  // ---------- 開閉・明かり ----------
+  isOpenable(furn) { return furn.kind === 'furniture' && Object.keys(furn.parts || {}).length > 0; }
+  hasLight(furn) { return furn.kind === 'furniture' && furn.lights && furn.lights.length > 0; }
+  anyOpen(furn) { return Object.values(furn.state.open).some(v => v > 0); }
+
+  setOpen(furn, name, open) {
+    if (!furn.parts[name]) return;
+    furn.state.open[name] = open ? 1 : 0;
+    this.dirty = true;
+  }
+  togglePart(furn, name) {
+    if (name === 'light') { this.setLight(furn, !furn.state.light); return 'light'; }
+    if (!furn.parts[name]) return null;
+    this.setOpen(furn, name, !furn.state.open[name]);
+    return furn.state.open[name] ? 'open' : 'close';
+  }
+  setAllOpen(furn, open) { for (const n of Object.keys(furn.parts)) this.setOpen(furn, n, open); }
+
+  setLight(furn, on) {
+    furn.state.light = !!on;
+    this.applyLight(furn);
+    this.dirty = true;
+  }
+  applyLight(furn) {
+    const on = furn.state.light !== false;
+    for (const l of furn.lights || []) {
+      l.mesh.material.emissiveIntensity = on ? l.intensity : 0;
+      l.mesh.material.color.copy(l.color).multiplyScalar(on ? 1 : 0.82);
+      if (l.mesh.userData.flame) l.mesh.visible = on;
+    }
+  }
+
+  // ---------- 画像 ----------
+  async addImage({ id, src, host, x, y, rot = 0, w, h, draw = null, scale = 1, isText = false, isSticky = false }) {
+    const img = await loadImage(src);
+    return this.addImageFromElement({ id, src, el: img, host, x, y, rot, w, h, draw, scale, isText, isSticky });
+  }
+
+  async addImageFromElement({ id, src, el, host, x, y, rot = 0, w, h, draw = null, scale = 1, isText = false, isSticky = false }) {
     const tex = new THREE.Texture(el);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.premultiplyAlpha = true;
@@ -182,9 +250,9 @@ export class Palace {
     tex.needsUpdate = true;
     const alpha = isText || /^data:image\/(png|webp|gif)/.test(src);
     const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: alpha, premultipliedAlpha: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    const obj = { kind: 'image', id: id || newId(), src, w, h, host: null, x: 0, y: 0, rot: 0, scale: 1, isText };
-    const ppm = Math.min(this.ppm, 2048 / Math.max(w, h));
-    const s = new Surface({ key: `${obj.id}:img`, width: w, height: h, ppm, kind: 'image', mount: 'image', baseMaterial: mat, owner: obj, label: isText ? '文字' : '画像', acceptsImages: false });
+    const obj = { kind: 'image', id: id || newId(), src, w, h, host: null, x: 0, y: 0, rot: 0, scale: 1, isText, isSticky };
+    const ppm = Math.min(Math.max(this.ppm, 1024 / Math.max(w, h)), 2048 / Math.max(w, h));
+    const s = new Surface({ key: `${obj.id}:img`, width: w, height: h, ppm, kind: 'image', mount: 'image', baseMaterial: mat, owner: obj, label: isText ? '文字' : isSticky ? '付箋' : '画像', acceptsImages: false });
     // 画像の縁（ごく薄い影）
     const edge = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.012, h + 0.012), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.06, depthWrite: false }));
     edge.position.z = -0.0006; edge.raycast = noRaycast;
@@ -328,7 +396,17 @@ export class Palace {
 
   // ---------- 毎フレーム ----------
   update(dt, time) {
-    for (const f of this.furniture.values()) if (f.animate) f.animate(time, dt);
+    for (const f of this.furniture.values()) {
+      if (f.animate) f.animate(time, dt);
+      for (const [n, part] of Object.entries(f.parts || {})) {
+        const target = f.state.open[n] || 0, k = f.openK[n];
+        if (k !== target) {
+          const d = target - k;
+          f.openK[n] = Math.abs(d) < 0.002 ? target : k + d * (1 - Math.exp(-dt * 9));
+          part.apply(easeOut(f.openK[n]));
+        }
+      }
+    }
     for (const s of this.surfaces.values()) s.flush();
     if (this.doorOpen !== this.doorTarget) {
       const d = this.doorTarget - this.doorOpen;
@@ -346,11 +424,11 @@ export class Palace {
     for (const f of this.furniture.values()) {
       const sd = {};
       for (const [n, s] of Object.entries(f.surfaces)) { const d = s.toData(); if (d) sd[n] = d; }
-      furniture.push({ id: f.id, type: f.type, tone: f.tone, host: f.host.key, x: r4(f.x), y: r4(f.y), rot: r4(f.rot), scale: r4(f.scale), surfaces: sd });
+      furniture.push({ id: f.id, type: f.type, tone: f.tone, host: f.host.key, x: r4(f.x), y: r4(f.y), rot: r4(f.rot), scale: r4(f.scale), state: f.state, surfaces: sd });
     }
     const images = [];
     for (const im of this.images.values()) {
-      images.push({ id: im.id, host: im.host.key, x: r4(im.x), y: r4(im.y), rot: r4(im.rot), scale: r4(im.scale), w: im.w, h: im.h, src: im.src, layer: im.layer || 0, draw: im.surface.toData(), isText: !!im.isText });
+      images.push({ id: im.id, host: im.host.key, x: r4(im.x), y: r4(im.y), rot: r4(im.rot), scale: r4(im.scale), w: im.w, h: im.h, src: im.src, layer: im.layer || 0, draw: im.surface.toData(), isText: !!im.isText, isSticky: !!im.isSticky });
     }
     images.sort((a, b) => a.layer - b.layer);
     return {
@@ -375,7 +453,7 @@ export class Palace {
         const host = p.surfaces.get(f.host);
         if (!host) { next.push(f); continue; }
         if (!CATALOG_BY_ID[f.type]) continue;
-        const furn = p.addFurniture({ id: f.id, type: f.type, tone: f.tone, host, x: f.x, y: f.y, rot: f.rot, scale: f.scale || 1 });
+        const furn = p.addFurniture({ id: f.id, type: f.type, tone: f.tone, host, x: f.x, y: f.y, rot: f.rot, scale: f.scale || 1, state: f.state });
         for (const [n, d] of Object.entries(f.surfaces || {})) if (furn.surfaces[n]) jobs.push(furn.surfaces[n].loadData(d));
       }
       if (next.length === pending.length) break;
@@ -386,7 +464,7 @@ export class Palace {
       const host = p.surfaces.get(im.host);
       if (!host) continue;
       try {
-        await p.addImage({ id: im.id, src: im.src, host, x: im.x, y: im.y, rot: im.rot, w: im.w, h: im.h, draw: im.draw, scale: im.scale || 1, isText: !!im.isText });
+        await p.addImage({ id: im.id, src: im.src, host, x: im.x, y: im.y, rot: im.rot, w: im.w, h: im.h, draw: im.draw, scale: im.scale || 1, isText: !!im.isText, isSticky: !!im.isSticky });
       } catch (e) { console.warn(e); }
     }
     await Promise.all(jobs.map(j => j.catch(e => console.warn(e))));
@@ -401,4 +479,5 @@ export class Palace {
   }
 }
 
+function easeOut(t) { return 1 - Math.pow(1 - t, 2); }
 function r4(v) { return Math.round(v * 10000) / 10000; }

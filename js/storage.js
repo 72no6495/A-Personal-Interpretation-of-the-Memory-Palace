@@ -96,13 +96,15 @@ export function backupFileName(name) {
 }
 
 export async function downloadBackup(data) {
-  const blob = makeBackupBlob(data);
-  const name = backupFileName(data.name);
-  // 可能ならファイル共有（スマホ）を試す
+  return downloadBlob(makeBackupBlob(data), backupFileName(data.name), 'application/json');
+}
+
+// ファイルを保存（スマホは共有メニュー、それ以外はダウンロード）
+export async function downloadBlob(blob, name, type) {
   try {
-    const file = new File([blob], name, { type: 'application/json' });
+    const file = new File([blob], name, { type });
     if (navigator.canShare && navigator.canShare({ files: [file] }) && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
-      await navigator.share({ files: [file], title: data.name });
+      await navigator.share({ files: [file] });
       return 'shared';
     }
   } catch (e) {

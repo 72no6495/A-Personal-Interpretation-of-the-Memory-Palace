@@ -81,6 +81,7 @@
       <button class="icon-btn" id="btn-face" title="面の正面を向く (G)"></button>
       <button class="icon-btn" id="btn-zoom" title="ズーム (Z)"></button>
       <button class="icon-btn" id="btn-help" title="操作説明 (H)"></button>
+      <button class="icon-btn" id="btn-photo" title="撮影モード (P)"></button>
       <button class="icon-btn" id="btn-fullscreen" title="全画面にする"></button>
     </div>
     <button id="btn-drawmode" class="hidden"></button>
@@ -93,6 +94,25 @@
     <div id="lock-hint" class="hidden">クリックして操作を開始</div>
     <div id="stick" class="hidden"><div id="stick-knob"></div></div>
   </div>
+
+  <!-- 撮影モード -->
+  <div id="photo-ui" class="hidden">
+    <div id="photo-frame"><i></i><i></i><i></i><i></i></div>
+    <div class="photo-top">
+      <button class="icon-btn" data-a="exit" aria-label="撮影モードを終了">✕</button>
+      <div class="photo-opts">
+        <div class="photo-filters"></div>
+        <div class="photo-aspects"></div>
+      </div>
+      <button class="chip" data-a="grid">グリッド</button>
+    </div>
+    <div class="photo-bottom">
+      <button class="photo-last hidden" data-a="last" aria-label="撮った写真"></button>
+      <label class="photo-zoom"><span>ズーム</span><input type="range" min="1" max="4" step="0.05" value="1" data-a="zoom"></label>
+      <button class="photo-shutter" data-a="shutter" aria-label="撮影"><span></span></button>
+    </div>
+  </div>
+  <div id="photo-flash"></div>
 
   <div id="modals"></div>
   <div id="toast"></div>

@@ -7,6 +7,7 @@ import { History } from './history.js';
 import { Tools } from './tools.js';
 import { Input } from './input.js';
 import { UI, toggleFullscreen } from './ui.js';
+import { PhotoMode } from './photo.js';
 import { sfx, unlockAudio } from './audio.js';
 import { buildModel, CATALOG_BY_ID } from './furniture.js';
 import * as store from './storage.js';
@@ -31,6 +32,7 @@ class App {
     this.ui = new UI(this);
     this.tools = new Tools(this);
     this.input = new Input(this);
+    this.photo = new PhotoMode(this);
     this.history.onChange = () => this.ui.updateUndo();
 
     this.titleWorld = new Palace(this.renderer, { ppm: 24, name: 'title' });
@@ -152,6 +154,7 @@ class App {
   }
 
   leaveGame() {
+    this.photo.exit();
     this.input.enable(false);
     this.tools.reset();
     this.inGame = false;
@@ -323,6 +326,7 @@ class App {
 
   async exitThroughDoor() {
     this.exiting = true;
+    this.photo.exit();
     this.input.enable(false);
     this.tools.active.cancel();
     this.tools.setSelected(null);
@@ -351,6 +355,7 @@ class App {
         <button class="btn" data-a="save">保存する</button>
         <button class="btn" data-a="backup">バックアップを作成</button>
         <button class="btn" data-a="rename">名前を変更</button>
+        <button class="btn" data-a="photo">撮影モード</button>
         <button class="btn" data-a="fullscreen">全画面表示の切り替え</button>
         <button class="btn" data-a="settings">設定</button>
         <button class="btn" data-a="help">操作説明</button>
@@ -367,6 +372,7 @@ class App {
         if (n && this.world) { this.world.name = n; this.ui.setPalaceName(n); box.querySelector('h3').textContent = n; this.markDirty(); }
       });
       on('fullscreen', () => { close(); toggleFullscreen(this.ui); });
+      on('photo', () => { close(); this.photo.enter(); });
       on('settings', () => { close(); this.ui.openSettingsOverlay(); });
       on('help', () => { close(); this.ui.toggleHelp(); });
       on('exit', () => { this.exiting = true; close(); this.exitThroughDoor(); });
