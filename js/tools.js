@@ -36,7 +36,7 @@ export const TOOL_INFO = {
   pen: { name: 'ペン', key: '2', desc: '描く' },
   eraser: { name: '消しゴム', key: '3', desc: '消す' },
   text: { name: '文字', key: '4', desc: '文字を書く' },
-  image: { name: '画像', key: '5', desc: '画像を貼る' },
+  image: { name: '画像', key: '5', desc: '画像・付箋を貼る' },
   furniture: { name: '家具', key: '6', desc: '家具を置く' },
 };
 
@@ -481,8 +481,21 @@ class FurnitureTool {
 class ImageTool {
   constructor(app, tools) { this.app = app; this.tools = tools; this.pending = null; this.ghost = null; this.valid = null; }
   activate() {
-    if (!this.pending) this.choose();
     this.app.ui.updateToolPanel();
+  }
+
+  // 付箋（色付きの紙）を貼る準備
+  async sticky(color) {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const x = c.getContext('2d');
+    x.fillStyle = color; x.fillRect(0, 0, 256, 256);
+    const g = x.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, 'rgba(0,0,0,0.06)'); g.addColorStop(0.18, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(255,255,255,0.08)');
+    x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+    const src = c.toDataURL('image/jpeg', 0.92);
+    const el = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+    this.setPending({ src, el, aspect: 1, sticky: true, size: 0.12 });
+    sfx.open();
   }
   deactivate() { this.removeGhost(); }
   cancel() {}
@@ -491,7 +504,7 @@ class ImageTool {
 
   async choose() {
     const file = await this.app.ui.pickFile('image/*');
-    if (!file) { if (!this.pending && this.tools.current === 'image') this.tools.select('hand'); return; }
+    if (!file) return;
     try {
       this.app.ui.busy(true, '画像を読み込み中…');
       this.setPending(await prepareImage(file));
@@ -518,7 +531,7 @@ class ImageTool {
 
   sizeFor(host) {
     const a = this.pending.aspect;
-    const longest = Math.min(this.tools.state.imageSize, Math.max(host.width, host.height) * 0.9);
+    const longest = Math.min(this.pending.size || this.tools.state.imageSize, Math.max(host.width, host.height) * 0.9);
     let w, h;
     if (a >= 1) { w = longest; h = longest / a; } else { h = longest; w = longest * a; }
     if (h > host.height * 0.95) { h = host.height * 0.95; w = h * a; }
@@ -559,7 +572,7 @@ class ImageTool {
     if (!v || !this.pending) { sfx.error(); this.app.ui.toast('ここには貼れません'); return; }
     const p = this.pending;
     const w = this.app.world;
-    const obj = await w.addImageFromElement({ src: p.src, el: p.el, host: v.host, x: v.x, y: v.y, rot: 0, w: v.w, h: v.h });
+    const obj = await w.addImageFromElement({ src: p.src, el: p.el, host: v.host, x: v.x, y: v.y, rot: 0, w: v.w, h: v.h, isSticky: !!p.sticky });
     let bundle = null;
     this.app.history.push({
       undo: () => { bundle = w.removeObject(obj); this.tools.deselectIf(obj); },
@@ -571,7 +584,8 @@ class ImageTool {
     this.pending = null;
     this.tools.select('hand');
     this.tools.setSelected(obj);
-    this.app.ui.toast('貼り付けました。ペンで上に描いたり、手ツールで動かせます');
+    this.app.ui.toast(p.sticky ? '付箋を貼りました。ペンや文字で書き込めます' : '貼り付けました。ペンで上に描いたり、手ツールで動かせます');
+    if (p.sticky) this.tools.select('pen');
   }
 }
 
@@ -621,12 +635,33 @@ class HandTool {
     return !!obj && obj === this.tools.selected;
   }
 
+  // クリックした部分（扉・引き出し・ふた・明かり）の名前
+  partAt(t, obj) {
+    if (!t || !obj || obj.kind !== 'furniture' || t.target.type !== 'object') return null;
+    let o = t.hit.object;
+    while (o && o !== obj.root) {
+      if (o.userData.partName) return o.userData.partName;
+      o = o.parent;
+    }
+    return null;
+  }
+
+  togglePart(obj, part) {
+    const r = this.app.world.togglePart(obj, part);
+    if (!r) return;
+    if (r === 'light') (obj.state.light ? sfx.lightOn : sfx.lightOff).call(sfx);
+    else (r === 'open' ? sfx.openDrawer : sfx.closeDrawer).call(sfx);
+    this.app.markDirty();
+    this.app.ui.onSelectionChange(obj);
+  }
+
   tap(ndc) {
     const t = this.app.pickAt(ndc);
     if (t && t.target.type === 'door') { this.app.openDoorMenu(); return; }
     const obj = this.resolve(t);
-    this.tools.setSelected(obj);
-    if (obj) sfx.pick();
+    const part = this.partAt(t, obj);
+    if (obj !== this.tools.selected) { this.tools.setSelected(obj); if (obj && !part) sfx.pick(); }
+    if (part) this.togglePart(obj, part);
   }
 
   down(ndc) {
@@ -637,7 +672,7 @@ class HandTool {
     if (!obj) return;
     const lp = obj.host.worldToLocal(t.hit.point);
     this.drag = {
-      obj, moved: false, startPoint: t.hit.point.clone(),
+      obj, moved: false, startPoint: t.hit.point.clone(), part: this.partAt(t, obj),
       before: { host: obj.host, x: obj.x, y: obj.y, rot: obj.rot, scale: obj.scale },
       offset: { x: lp.x - obj.x, y: lp.y - obj.y }, offsetHost: obj.host,
     };
@@ -664,7 +699,7 @@ class HandTool {
     this.drag = null;
     if (!d) return;
     this.app.ui.setDragging(false);
-    if (!d.moved) return;
+    if (!d.moved) { if (d.part) this.togglePart(d.obj, d.part); return; }
     const o = d.obj;
     this.tools.pushTransform(o, d.before, { host: o.host, x: o.x, y: o.y, rot: o.rot, scale: o.scale });
     sfx.place();
@@ -838,9 +873,9 @@ export class Tools {
     const dx = Math.min(0.3, o.host.width * 0.1), dy = -Math.min(0.3, o.host.height * 0.1);
     let copy;
     if (o.kind === 'image') {
-      copy = await w.addImage({ isText: o.isText, src: o.src, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, w: o.w, h: o.h, scale: o.scale, draw: o.surface.hasContent ? o.surface.canvas.toDataURL() : null });
+      copy = await w.addImage({ isText: o.isText, isSticky: o.isSticky, src: o.src, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, w: o.w, h: o.h, scale: o.scale, draw: o.surface.hasContent ? o.surface.canvas.toDataURL() : null });
     } else {
-      copy = w.addFurniture({ type: o.type, tone: o.tone, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, scale: o.scale });
+      copy = w.addFurniture({ type: o.type, tone: o.tone, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, scale: o.scale, state: o.state });
       for (const [n, s] of Object.entries(o.surfaces)) {
         if (s.hasContent && copy.surfaces[n]) { copy.surfaces[n].ctx.drawImage(s.canvas, 0, 0); copy.surfaces[n].markDrawn(); }
       }

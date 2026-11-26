@@ -78,6 +78,11 @@ export const sfx = {
   door() { tone(392, { dur: 0.6, gain: 0.05 }); tone(523, { dur: 0.7, gain: 0.04, delay: 0.15 }); tone(659, { dur: 0.9, gain: 0.03, delay: 0.3 }); },
   arrive() { tone(523, { dur: 1.2, gain: 0.035 }); tone(784, { dur: 1.4, gain: 0.025, delay: 0.2 }); tone(1046, { dur: 1.6, gain: 0.018, delay: 0.4 }); },
   open() { tone(660, { dur: 0.1, gain: 0.04 }); },
+  openDrawer() { noise({ dur: 0.22, gain: 0.03, freq: 520, q: 0.7 }); tone(300, { dur: 0.1, gain: 0.03, delay: 0.16 }); },
+  closeDrawer() { noise({ dur: 0.16, gain: 0.03, freq: 420, q: 0.7 }); tone(170, { dur: 0.12, gain: 0.07, delay: 0.12 }); },
+  lightOn() { tone(1200, { dur: 0.04, gain: 0.04, type: 'triangle' }); tone(900, { dur: 0.05, gain: 0.02, delay: 0.03 }); },
+  lightOff() { tone(800, { dur: 0.04, gain: 0.04, type: 'triangle' }); tone(600, { dur: 0.05, gain: 0.02, delay: 0.03 }); },
+  shutter() { noise({ dur: 0.05, gain: 0.06, freq: 3000, q: 0.6 }); noise({ dur: 0.07, gain: 0.05, freq: 1800, q: 0.6, delay: 0.07 }); },
 
   // ペンの擦れ音（ごく小さく）
   scratchStart(eraser = false) {

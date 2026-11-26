@@ -1,7 +1,7 @@
 // 画面・HUD・パネル・モーダル
 import { settings, saveSettings, resetSettings, isTouchDevice } from './settings.js';
 import { PEN_COLORS, SHAPES, FONTS, TOOL_ORDER, TOOL_INFO } from './tools.js';
-import { CATALOG, TONES, TONE_KEYS, MOUNT_NAMES } from './furniture.js';
+import { CATALOG, TONES, TONE_KEYS, MOUNT_NAMES, currentMonth } from './furniture.js';
 import { sfx } from './audio.js';
 
 const svg = (inner, vb = '0 0 24 24') => `<svg viewBox="${vb}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -25,8 +25,11 @@ export const ICONS = {
   rotR: svg('<path d="M20 5v5h-5"/><path d="M19 14a7.5 7.5 0 1 1-1.8-7.5L20 10"/>'),
   fullscreen: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
   fullscreenExit: svg('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
+  camera: svg('<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   chevron: svg('<path d="M7 10l5 5 5-5"/>'),
 };
+
+const STICKY_COLORS = ['#fff1a6', '#ffd3dd', '#cfe5ff', '#d5f3cf', '#ffe1bd'];
 
 export class UI {
   constructor(app) {
@@ -306,6 +309,7 @@ export class UI {
     ib('btn-zoom', 'zoom', () => this.app.toggleZoom());
     ib('btn-help', 'help', () => this.toggleHelp());
     ib('btn-fullscreen', 'fullscreen', () => toggleFullscreen(this));
+    ib('btn-photo', 'camera', () => this.app.photo.toggle());
     const tfs = this.$('btn-title-fullscreen');
     tfs.innerHTML = ICONS.fullscreen;
     tfs.onclick = () => { sfx.click(); toggleFullscreen(this); };
@@ -501,8 +505,15 @@ export class UI {
       group(label('濃さ'), ...slider(0.1, 1, st.opacity, v => Math.round(v * 100) + '%', v => { st.opacity = v; }));
     } else if (name === 'image') {
       const it = tools.tools.image;
-      group(chip(it.pending ? '別の画像を選ぶ' : '画像を選ぶ', false, () => it.choose()));
-      group(label('大きさ'), ...slider(0.15, 4, st.imageSize, v => v.toFixed(2) + 'm', v => { st.imageSize = v; }, true));
+      group(chip(it.pending && !it.pending.sticky ? '別の画像を選ぶ' : '画像ファイルを選ぶ', false, () => it.choose()));
+      const sg = group(label('付箋'));
+      for (const c of STICKY_COLORS) {
+        const b = el('button', 'swatch' + (it.pending && it.pending.sticky && it.pending.src && it._stickyColor === c ? ' on' : ''));
+        b.style.background = c; b.style.borderRadius = '4px'; b.title = '付箋';
+        b.onclick = () => { it._stickyColor = c; it.sticky(c).then(() => this.updateToolPanel()); };
+        sg.appendChild(b);
+      }
+      if (!it.pending || !it.pending.sticky) group(label('大きさ'), ...slider(0.15, 4, st.imageSize, v => v.toFixed(2) + 'm', v => { st.imageSize = v; }, true));
       if (it.pending) {
         if (isTouchDevice) group(chip('照準の位置に貼る', true, () => it.place()));
         group(label(isTouchDevice ? '貼りたい場所をタップ' : '貼りたい場所をクリック'));
@@ -514,7 +525,7 @@ export class UI {
       if (!o) {
         group(label(isTouchDevice ? 'タップで選択／選択中のものはドラッグで移動／ドアをタップで退出' : 'クリックで選択・ドラッグで移動／ドアをクリックで退出'));
       } else {
-        const title = o.kind === 'image' ? (o.isText ? '文字' : '画像') : o.def.name;
+        const title = o.kind === 'image' ? (o.isText ? '文字' : o.isSticky ? '付箋' : '画像') : o.def.name;
         group(el('span', 'sel-title', title));
         sep();
         const ib = (icon, t, fn) => { const b = el('button', 'chip'); b.innerHTML = icon; b.title = t; b.style.padding = '4px 7px'; b.querySelector('svg').style.cssText = 'width:18px;height:18px;display:block'; b.onclick = () => { fn(); }; return b; };
@@ -531,6 +542,27 @@ export class UI {
           }
         }
         sep();
+        const world = this.app.world;
+        if (o.kind === 'furniture' && (world.isOpenable(o) || world.hasLight(o) || o.type === 'calendar')) {
+          sep();
+          if (world.isOpenable(o)) {
+            const opened = world.anyOpen(o);
+            group(chip(opened ? '閉める' : '開ける', false, () => {
+              world.setAllOpen(o, !opened); (opened ? sfx.closeDrawer : sfx.openDrawer).call(sfx); this.app.markDirty(); this.updateToolPanel();
+            }));
+          }
+          if (world.hasLight(o)) {
+            const on = o.state.light !== false;
+            group(chip(on ? '消灯' : '点灯', false, () => {
+              world.setLight(o, !on); (on ? sfx.lightOff : sfx.lightOn).call(sfx); this.app.markDirty(); this.updateToolPanel();
+            }));
+          }
+          if (o.type === 'calendar') {
+            const [y, m] = o.state.month.split('-').map(Number);
+            const shift = d => { world.setProp(o, 'month', currentMonth(d, o.state.month)); sfx.click(); this.app.markDirty(); this.updateToolPanel(); };
+            group(chip('‹ 前の月', false, () => shift(-1)), el('span', 'tp-val', `${y}/${m}`), chip('次の月 ›', false, () => shift(1)));
+          }
+        }
         const hasDraw = o.kind === 'image' || Object.keys(o.surfaces).length > 0;
         group(chip('複製', false, () => tools.duplicateSelected()), hasDraw ? chip('描いた線を消す', false, () => tools.clearSelectedDrawing()) : null, chip('削除', false, () => tools.deleteSelected(), 'danger'));
         group(chip('選択解除', false, () => tools.setSelected(null)));
@@ -644,12 +676,13 @@ export class UI {
       ['F', '照準モード ⇄ カーソルモード'], ['右ドラッグ', '視点（カーソルモード）'], ['G', '見ている面の正面を向く'], ['Z', 'ズーム'],
       ['C / Shift+C', 'ペンの色'], ['ホイール / [ ]', '太さ・大きさ'], ['Shift+ドラッグ', '直線'], ['R / Shift+R', '回転'],
       ['T', '家具の色'], ['Delete / X', '削除'], ['Ctrl+D', '複製'], ['Ctrl+Z / Ctrl+Y', '元に戻す / やり直す'], ['Ctrl+S', '保存'],
+      ['P', '撮影モード（クリック／スペースで撮影）'], ['クリック（手）', '扉・引き出し・ふたの開閉、明かりの点灯'],
       ['Tab', '表示を隠す'], ['H', '操作説明'], ['Esc', 'メニュー'],
     ];
     const touch = [
       ['画面の左側', 'タッチした場所にスティック → 移動'], ['画面の右側', 'スワイプで視点'], ['タップ', 'ツールを使う'],
       ['ペン・消しゴム', '描画モード：1本指で描く'], ['描画モード中', '2本指で視点'], ['「描画中／移動中」', 'モード切替'],
-      ['手ツール', 'タップで選択、選択中のものをドラッグで移動'], ['右上のボタン', '正面を向く・ズーム・操作説明'], ['ドア', 'タップでバックアップ・退出'],
+      ['手ツール', 'タップで選択、選択中のものをドラッグで移動。扉・引き出し・明かりはタップで開閉・点灯'], ['カメラのボタン', '撮影モード'], ['右上のボタン', '正面を向く・ズーム・操作説明'], ['ドア', 'タップでバックアップ・退出'],
     ];
     const tools = [
       ['手', '家具・画像を選んで移動・回転・拡大縮小・色変更・複製・削除。ドアを開く'],

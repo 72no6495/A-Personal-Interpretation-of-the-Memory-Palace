@@ -122,6 +122,14 @@ export class Input {
   // ---- マウス ----
   mouseDown(e) {
     if (e.target !== this.el) return;
+    if (this.app.photo.active) {
+      if (this.mode === 'lock') {
+        if (!this.locked) { this.requestLock(); return; }
+        if (e.button === 0) this.app.photo.shoot();
+      } else if (e.button === 0) this.app.photo.shoot();
+      else if (e.button === 2) { this.rightDrag = true; this.rightMoved = 0; }
+      return;
+    }
     if (this.mode === 'lock') {
       if (!this.locked) { this.requestLock(); return; }
       if (e.button === 0) { this.primary = true; this.tool.down(CENTER, e); }
@@ -179,6 +187,12 @@ export class Input {
     if (!this.enabled || this.app.ui.modalOpen) return;
     e.preventDefault();
     const dir = e.deltaY > 0 ? -1 : 1;
+    if (this.app.photo.active) {
+      const p = this.app.player;
+      p.zoomTarget = Math.max(1, Math.min(4, p.zoomTarget * (dir > 0 ? 1.1 : 1 / 1.1)));
+      this.app.photo.el.querySelector('[data-a=zoom]').value = p.zoomTarget;
+      return;
+    }
     const n = this.toolName, t = this.app.tools;
     if (n === 'pen' || n === 'eraser') this.app.ui.adjustSize(dir);
     else if (n === 'furniture') t.tools.furniture.rotate(dir);
@@ -196,7 +210,8 @@ export class Input {
     this.pointers.set(e.pointerId, p);
     try { this.el.setPointerCapture(e.pointerId); } catch { /* 無視 */ }
     const n = this.toolName;
-    const drawTool = n === 'pen' || n === 'eraser';
+    const photo = this.app.photo.active;
+    const drawTool = !photo && (n === 'pen' || n === 'eraser');
 
     if (drawTool && (this.drawMode || e.pointerType === 'pen')) {
       const drawing = [...this.pointers.values()].filter(q => q.role === 'draw');
@@ -230,7 +245,7 @@ export class Input {
         return;
       }
     }
-    if (n === 'hand' && this.tool.canDragAt(ndc)) {
+    if (!photo && n === 'hand' && this.tool.canDragAt(ndc)) {
       p.role = 'objdrag';
       this.tool.down(ndc, {});
       return;
@@ -295,6 +310,7 @@ export class Input {
   }
 
   tap(ndc) {
+    if (this.app.photo.active) return;
     const n = this.toolName;
     if (n === 'hand') this.tool.tap(ndc);
     else { this.tool.down(ndc, {}); this.tool.up(ndc, {}); }
@@ -325,6 +341,14 @@ export class Input {
     if (ctrl && e.code === 'KeyD') { e.preventDefault(); t.duplicateSelected(); return; }
     if (ctrl) return;
     this.keys.add(e.code);
+    if (this.app.photo.active) {
+      if (e.code === 'KeyP' || (e.code === 'Escape' && this.mode === 'cursor')) this.app.photo.exit();
+      else if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); this.app.photo.shoot(); }
+      else if (e.code === 'KeyF') this.toggleMode();
+      else if (e.code === 'KeyH') this.app.ui.toggleHelp();
+      return;
+    }
+    if (e.code === 'KeyP') { this.app.photo.enter(); return; }
     switch (e.code) {
       case 'KeyQ': t.cycle(-1); break;
       case 'KeyE': t.cycle(1); break;
@@ -375,7 +399,7 @@ export class Input {
     let ndc = null;
     if (this.touch || this.mode === 'lock') ndc = CENTER;
     else if (this.mouse) ndc = this.mouse;
-    if (ndc) this.tool.hover(ndc);
+    if (ndc && !this.app.photo.active) this.tool.hover(ndc);
     // ロック中に描きながら移動
     if (this.primary && this.mode === 'lock' && (x || y)) this.tool.move(CENTER, {});
   }
