@@ -8,6 +8,7 @@ import { Tools } from './tools.js';
 import { Input } from './input.js';
 import { UI, toggleFullscreen } from './ui.js';
 import { PhotoMode } from './photo.js';
+import { XRMode } from './xr.js';
 import { sfx, unlockAudio } from './audio.js';
 import { buildModel, CATALOG_BY_ID } from './furniture.js';
 import * as store from './storage.js';
@@ -33,6 +34,7 @@ class App {
     this.tools = new Tools(this);
     this.input = new Input(this);
     this.photo = new PhotoMode(this);
+    this.xr = new XRMode(this);
     this.history.onChange = () => this.ui.updateUndo();
 
     this.titleWorld = new Palace(this.renderer, { ppm: 24, name: 'title' });
@@ -54,6 +56,7 @@ class App {
   get scene() { return this.world ? this.world.scene : this.titleWorld.scene; }
 
   resize() {
+    if (this.renderer.xr.isPresenting) return; // VR 中はヘッドセット側が大きさを決める
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
@@ -61,6 +64,7 @@ class App {
   }
 
   applySettings() {
+    if (this.renderer.xr.isPresenting) return;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, settings.pixelRatio));
     this.resize();
     this.ui.applyDisplaySettings();
@@ -68,15 +72,20 @@ class App {
 
   // ---------- ループ ----------
   loop() {
-    requestAnimationFrame(() => this.loop());
+    // WebXR ではヘッドセットの描画タイミングに合わせる必要があるため setAnimationLoop を使う
+    this.renderer.setAnimationLoop(() => this.frame());
+  }
+
+  frame() {
     const dt = Math.min(0.05, this.clock.getDelta());
     this.time += dt;
     if (this.inGame && this.world) {
-      this.input.update(dt);
+      if (this.xr.active) this.xr.update(dt);
+      else this.input.update(dt);
       this.player.update(dt, this.world.colliders());
       this.world.update(dt, this.time);
       this.tools.update();
-      if ((this.frame = (this.frame || 0) + 1) % 12 === 0) this.ui.updateStick();
+      if ((this.frameCount = (this.frameCount || 0) + 1) % 12 === 0) this.ui.updateStick();
       this.renderer.render(this.world.scene, this.camera);
     } else {
       // タイトル背景：白い部屋をゆっくり見回す
@@ -90,7 +99,11 @@ class App {
   }
 
   // ---------- ピック ----------
-  setRay(ndc) { this.raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera); }
+  // ndc：画面上の位置 {x, y}、または VR コントローラーの光線 {ray: {origin, direction}}
+  setRay(ndc) {
+    if (ndc.ray) this.raycaster.set(ndc.ray.origin, ndc.ray.direction);
+    else this.raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), this.camera);
+  }
   pickAll(ndc, ignoreRoot = null) {
     if (!this.world) return [];
     this.setRay(ndc);
@@ -155,6 +168,7 @@ class App {
 
   leaveGame() {
     this.photo.exit();
+    this.xr.exit();
     this.input.enable(false);
     this.tools.reset();
     this.inGame = false;
@@ -167,6 +181,7 @@ class App {
 
   // ---------- 保存 ----------
   captureThumb() {
+    if (this.renderer.xr.isPresenting) return null; // VR 中は撮れない（前のサムネイルを使う）
     try {
       const hide = [this.tools.selHelper, this.tools.hovHelper, this.tools.tools.pen.cursor, this.tools.tools.eraser.cursor];
       const vis = hide.map(o => o.visible);
@@ -308,6 +323,7 @@ class App {
   }
 
   openDoorMenu() {
+    if (this.xr.active) { this.xr.openDoorPanel(); return; }
     if (this.ui.modalOpen || this.exiting) return;
     sfx.open();
     this.ui.openModal((box, close) => {
@@ -355,6 +371,7 @@ class App {
         <button class="btn" data-a="save">保存する</button>
         <button class="btn" data-a="backup">バックアップを作成</button>
         <button class="btn" data-a="rename">名前を変更</button>
+        <button class="btn" data-a="vr">VR で入る</button>
         <button class="btn" data-a="photo">撮影モード</button>
         <button class="btn" data-a="fullscreen">全画面表示の切り替え</button>
         <button class="btn" data-a="settings">設定</button>
@@ -373,6 +390,8 @@ class App {
       });
       on('fullscreen', () => { close(); toggleFullscreen(this.ui); });
       on('photo', () => { close(); this.photo.enter(); });
+      on('vr', () => { close(); this.xr.enter(); });
+      if (!this.xr.supported) box.querySelector('[data-a=vr]').remove();
       on('settings', () => { close(); this.ui.openSettingsOverlay(); });
       on('help', () => { close(); this.ui.toggleHelp(); });
       on('exit', () => { this.exiting = true; close(); this.exitThroughDoor(); });

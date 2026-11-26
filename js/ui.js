@@ -26,6 +26,7 @@ export const ICONS = {
   fullscreen: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
   fullscreenExit: svg('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
   camera: svg('<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
+  vr: svg('<path d="M3 8.5a1.5 1.5 0 0 1 1.5-1.5h15A1.5 1.5 0 0 1 21 8.5v7a1.5 1.5 0 0 1-1.5 1.5h-4l-2-2.5h-3l-2 2.5h-4A1.5 1.5 0 0 1 3 15.5z"/><circle cx="8" cy="11.5" r="1.6"/><circle cx="16" cy="11.5" r="1.6"/>'),
   chevron: svg('<path d="M7 10l5 5 5-5"/>'),
 };
 
@@ -145,6 +146,7 @@ export class UI {
   }
 
   toast(msg, ms = 2600) {
+    if (this.app.xr && this.app.xr.active) this.app.xr.notify(msg);
     const el = document.createElement('div');
     el.className = 'toast-item';
     el.textContent = msg;
@@ -343,6 +345,7 @@ export class UI {
     ib('btn-help', 'help', () => this.toggleHelp());
     ib('btn-fullscreen', 'fullscreen', () => toggleFullscreen(this));
     ib('btn-photo', 'camera', () => this.app.photo.toggle());
+    ib('btn-vr', 'vr', () => this.app.xr.enter());
     const tfs = this.$('btn-title-fullscreen');
     tfs.innerHTML = ICONS.fullscreen;
     tfs.onclick = () => { sfx.click(); toggleFullscreen(this); };
@@ -404,6 +407,11 @@ export class UI {
   }
 
   setDragging(on) { document.body.classList.toggle('dragging', on); }
+
+  setXRAvailable(on) {
+    this.$('btn-vr').classList.toggle('hidden', !on);
+    document.body.classList.toggle('xr-ok', on);
+  }
 
   setZoom(on) { this.$('btn-zoom').classList.toggle('on', on); }
 
@@ -709,13 +717,13 @@ export class UI {
       ['F', '照準モード ⇄ カーソルモード'], ['右ドラッグ', '視点（カーソルモード）'], ['G', '見ている面の正面を向く'], ['Z', 'ズーム'],
       ['C / Shift+C', 'ペンの色'], ['ホイール / [ ]', '太さ・大きさ'], ['Shift+ドラッグ', '直線'], ['R / Shift+R', '回転'],
       ['T', '家具の色'], ['Delete / X', '削除'], ['Ctrl+D', '複製'], ['Ctrl+Z / Ctrl+Y', '元に戻す / やり直す'], ['Ctrl+S', '保存'],
-      ['P', '撮影モード（クリック／スペースで撮影）'], ['クリック（手）', '扉・引き出し・ふたの開閉、明かりの点灯'],
+      ['P', '撮影モード（クリック／スペースで撮影）'], ['VR のボタン', 'VR ヘッドセットで入る（対応端末のみ）'], ['クリック（手）', '扉・引き出し・ふたの開閉、明かりの点灯'],
       ['Tab', '表示を隠す'], ['H', '操作説明'], ['Esc', 'メニュー'],
     ];
     const touch = [
       ['画面の左側', 'タッチした場所にスティック → 移動'], ['画面の右側', 'スワイプで視点'], ['タップ', 'ツールを使う'],
       ['ペン・消しゴム', '描画モード：1本指で描く'], ['描画モード中', '2本指で視点'], ['「描画中／移動中」', 'モード切替'],
-      ['手ツール', 'タップで選択、選択中のものをドラッグで移動。扉・引き出し・明かりはタップで開閉・点灯'], ['カメラのボタン', '撮影モード'], ['右上のボタン', '正面を向く・ズーム・操作説明'], ['ドア', 'タップでバックアップ・退出'],
+      ['手ツール', 'タップで選択、選択中のものをドラッグで移動。扉・引き出し・明かりはタップで開閉・点灯'], ['カメラのボタン', '撮影モード'], ['VR のボタン', 'VR ヘッドセットで入る（対応端末のみ）'], ['右上のボタン', '正面を向く・ズーム・操作説明'], ['ドア', 'タップでバックアップ・退出'],
     ];
     const tools = [
       ['手', '家具・画像を選んで移動・回転・拡大縮小・色変更・複製・削除。ドアを開く'],
