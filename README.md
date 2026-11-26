@@ -16,9 +16,9 @@ GitHub Pages などの静的ホスティングにそのまま置いても動き�
 
 ### GitHub Pages で公開する
 
-1. リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする
-2. `main` ブランチに push すると `.github/workflows/pages.yml` が自動で公開します（Actions タブから手動実行も可）
-3. 公開先：`https://<ユーザー名>.github.io/A-Personal-Interpretation-of-the-Memory-Palace/`
+リポジトリの **Settings → Pages → Build and deployment → Source** を **Deploy from a branch**（`main` / `/ (root)`）にすると、`main` に push するたびに自動で公開されます。
+
+公開先：`https://<ユーザー名>.github.io/A-Personal-Interpretation-of-the-Memory-Palace/`
 
 ※ 保存データはブラウザごと・公開URLごとに保存されます。別の端末へ移すときはドアからバックアップを作成してください。
 
