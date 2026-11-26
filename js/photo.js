@@ -85,7 +85,7 @@ export class PhotoMode {
   }
 
   enter() {
-    if (this.active || !this.app.inGame) return;
+    if (this.active || !this.app.inGame || (this.app.xr && this.app.xr.active)) return;
     const app = this.app;
     app.tools.active.cancel();
     app.tools.setSelected(null);

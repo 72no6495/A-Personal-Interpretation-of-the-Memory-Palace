@@ -134,6 +134,7 @@ export class Player {
   }
 
   apply() {
+    if (this.xr) return; // VR 中はヘッドセットがカメラを動かす
     const bobY = Math.sin(this.bob) * 0.018 * Math.min(1, Math.hypot(this.vel.x, this.vel.z));
     this.camera.position.set(this.pos.x, EYE + bobY + this.eyeOffset, this.pos.z);
     this.camera.rotation.set(this.pitch, this.yaw, 0);

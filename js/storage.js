@@ -44,6 +44,10 @@ export async function listPalaces() {
 }
 
 export async function savePalace(data, thumb) {
+  if (!thumb) {
+    // サムネイルが撮れなかったとき（VR 中など）は前のものを使う
+    try { const old = await tx(['meta'], 'readonly', t => reqP(t.objectStore('meta').get(data.id))); if (old) thumb = old.thumb; } catch { /* 無視 */ }
+  }
   const meta = {
     id: data.id, name: data.name, created: data.created, updated: data.updated,
     thumb: thumb || null,
