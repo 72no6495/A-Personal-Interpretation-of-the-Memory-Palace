@@ -169,24 +169,26 @@ export class Palace {
   }
 
   // ---------- 画像 ----------
-  async addImage({ id, src, host, x, y, rot = 0, w, h, draw = null, scale = 1 }) {
+  async addImage({ id, src, host, x, y, rot = 0, w, h, draw = null, scale = 1, isText = false }) {
     const img = await loadImage(src);
-    return this.addImageFromElement({ id, src, el: img, host, x, y, rot, w, h, draw, scale });
+    return this.addImageFromElement({ id, src, el: img, host, x, y, rot, w, h, draw, scale, isText });
   }
 
-  async addImageFromElement({ id, src, el, host, x, y, rot = 0, w, h, draw = null, scale = 1 }) {
+  async addImageFromElement({ id, src, el, host, x, y, rot = 0, w, h, draw = null, scale = 1, isText = false }) {
     const tex = new THREE.Texture(el);
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.premultiplyAlpha = true;
     tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     tex.needsUpdate = true;
-    const mat = new THREE.MeshLambertMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    const obj = { kind: 'image', id: id || newId(), src, w, h, host: null, x: 0, y: 0, rot: 0, scale: 1 };
+    const alpha = isText || /^data:image\/(png|webp|gif)/.test(src);
+    const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: alpha, premultipliedAlpha: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const obj = { kind: 'image', id: id || newId(), src, w, h, host: null, x: 0, y: 0, rot: 0, scale: 1, isText };
     const ppm = Math.min(this.ppm, 2048 / Math.max(w, h));
-    const s = new Surface({ key: `${obj.id}:img`, width: w, height: h, ppm, kind: 'image', mount: 'image', baseMaterial: mat, owner: obj, label: '画像', acceptsImages: false });
+    const s = new Surface({ key: `${obj.id}:img`, width: w, height: h, ppm, kind: 'image', mount: 'image', baseMaterial: mat, owner: obj, label: isText ? '文字' : '画像', acceptsImages: false });
     // 画像の縁（ごく薄い影）
     const edge = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.012, h + 0.012), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.06, depthWrite: false }));
     edge.position.z = -0.0006; edge.raycast = noRaycast;
-    s.group.add(edge);
+    if (!alpha) s.group.add(edge);
     s.group.userData.object = obj;
     obj.surface = s;
     obj.root = s.group;
@@ -348,7 +350,7 @@ export class Palace {
     }
     const images = [];
     for (const im of this.images.values()) {
-      images.push({ id: im.id, host: im.host.key, x: r4(im.x), y: r4(im.y), rot: r4(im.rot), scale: r4(im.scale), w: im.w, h: im.h, src: im.src, layer: im.layer || 0, draw: im.surface.toData() });
+      images.push({ id: im.id, host: im.host.key, x: r4(im.x), y: r4(im.y), rot: r4(im.rot), scale: r4(im.scale), w: im.w, h: im.h, src: im.src, layer: im.layer || 0, draw: im.surface.toData(), isText: !!im.isText });
     }
     images.sort((a, b) => a.layer - b.layer);
     return {
@@ -384,7 +386,7 @@ export class Palace {
       const host = p.surfaces.get(im.host);
       if (!host) continue;
       try {
-        await p.addImage({ id: im.id, src: im.src, host, x: im.x, y: im.y, rot: im.rot, w: im.w, h: im.h, draw: im.draw, scale: im.scale || 1 });
+        await p.addImage({ id: im.id, src: im.src, host, x: im.x, y: im.y, rot: im.rot, w: im.w, h: im.h, draw: im.draw, scale: im.scale || 1, isText: !!im.isText });
       } catch (e) { console.warn(e); }
     }
     await Promise.all(jobs.map(j => j.catch(e => console.warn(e))));

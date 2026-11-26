@@ -23,6 +23,8 @@ export const ICONS = {
   move: svg('<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>'),
   rotL: svg('<path d="M4 5v5h5"/><path d="M5 14a7.5 7.5 0 1 0 1.8-7.5L4 10"/>'),
   rotR: svg('<path d="M20 5v5h-5"/><path d="M19 14a7.5 7.5 0 1 1-1.8-7.5L20 10"/>'),
+  fullscreen: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+  fullscreenExit: svg('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
   chevron: svg('<path d="M7 10l5 5 5-5"/>'),
 };
 
@@ -256,11 +258,16 @@ export class UI {
     row('描画中の視点感度', 'PCで照準を使って描くとき、細かく描けるよう視点を遅くします', range('drawSensitivity', 0.1, 1, 0.05, pct));
     section('移動');
     row('移動速度', null, range('moveSpeed', 0.4, 2, 0.1));
+    row('移動スティック', 'スマホ・タブレット。「固定」は左下に常に薄く表示されます', seg('stickMode', [['float', '触った場所'], ['fixed', '固定']]));
     row('足音', null, toggle('footsteps'));
     section('描画');
-    row('描画の解像度', '高いほど細かく描けますがメモリを使います（次に宮殿を開いたときに反映）', seg('quality', [['low', '低'], ['medium', '中'], ['high', '高']]));
+    row('描画の解像度', '高いほど細かく描けますがメモリを使います（次に宮殿を開いたときに反映）', seg('quality', [['low', '低'], ['medium', '中'], ['high', '高'], ['ultra', '最高']]));
     row('手ぶれ補正（初期値）', 'ペンの線をなめらかにします', range('smoothing', 0, 0.9, 0.05, pct));
     section('表示');
+    const fs = document.createElement('button'); fs.className = 'btn small';
+    fs.textContent = isFullscreen() ? '全画面を終了' : '全画面にする';
+    fs.onclick = async () => { sfx.click(); await toggleFullscreen(this); fs.textContent = isFullscreen() ? '全画面を終了' : '全画面にする'; };
+    row('全画面表示', null, fs);
     row('照準を表示', null, toggle('showCrosshair'));
     row('操作ヒントを表示', null, toggle('showHints'));
     row('画質', '低いほど動作が軽くなります', seg('pixelRatio', [[1, '軽量'], [1.5, '標準'], [2, '高精細']]));
@@ -298,6 +305,19 @@ export class UI {
     ib('btn-face', 'face', () => this.app.faceSurface());
     ib('btn-zoom', 'zoom', () => this.app.toggleZoom());
     ib('btn-help', 'help', () => this.toggleHelp());
+    ib('btn-fullscreen', 'fullscreen', () => toggleFullscreen(this));
+    const tfs = this.$('btn-title-fullscreen');
+    tfs.innerHTML = ICONS.fullscreen;
+    tfs.onclick = () => { sfx.click(); toggleFullscreen(this); };
+    const onFs = () => {
+      const on = isFullscreen();
+      for (const b of [this.$('btn-fullscreen'), tfs]) {
+        b.innerHTML = on ? ICONS.fullscreenExit : ICONS.fullscreen;
+        b.title = on ? '全画面を終了' : '全画面にする';
+      }
+    };
+    document.addEventListener('fullscreenchange', onFs);
+    document.addEventListener('webkitfullscreenchange', onFs);
     ib('btn-mode', 'cursor', () => this.app.input.toggleMode());
     const dm = this.$('btn-drawmode');
     dm.onclick = () => { sfx.click(); this.setDrawMode(!this.app.input.drawMode); };
@@ -310,6 +330,7 @@ export class UI {
 
   showHud(on) {
     this.$('hud').classList.toggle('hidden', !on);
+    this.updateStick();
   }
 
   toggleHud() {
@@ -353,11 +374,39 @@ export class UI {
   showStick(x, y) {
     const s = this.$('stick');
     s.style.left = x + 'px'; s.style.top = y + 'px';
-    s.classList.remove('hidden');
+    s.classList.remove('hidden', 'idle');
     this.moveStick(0, 0);
   }
   moveStick(vx, vy) { this.$('stick-knob').style.transform = `translate(${vx * 36}px, ${vy * 36}px)`; }
-  hideStick() { this.$('stick').classList.add('hidden'); }
+  hideStick() {
+    this.moveStick(0, 0);
+    this.updateStick();
+  }
+
+  // 固定スティックの中心（画面座標）
+  stickCenter() {
+    const R = 56, m = 26;
+    const w = window.innerWidth, h = window.innerHeight;
+    const { l: sl, b: sb } = safeInsets();
+    const x = R + m + sl;
+    if (w > h) return { x, y: h - R - m - sb };
+    const dock = this.$('dock').getBoundingClientRect();
+    return { x, y: Math.min(h - R - m - sb, dock.top - R - 22) };
+  }
+
+  // 固定スティックは触っていないときも薄く表示する
+  updateStick() {
+    const input = this.app.input;
+    if (!input || input.stick.active) return;
+    const s = this.$('stick');
+    const fixed = isTouchDevice && settings.stickMode === 'fixed' && this.app.inGame && !input.drawMode && !this.modalOpen;
+    document.body.classList.toggle('fixed-stick', isTouchDevice && settings.stickMode === 'fixed');
+    if (!fixed) { s.classList.add('hidden'); s.classList.remove('idle'); return; }
+    const c = this.stickCenter();
+    s.style.left = c.x + 'px'; s.style.top = c.y + 'px';
+    s.classList.remove('hidden');
+    s.classList.add('idle');
+  }
 
   // ---- 描画モード（スマホ） ----
   setDrawMode(on) {
@@ -366,6 +415,7 @@ export class UI {
     b.classList.toggle('on', on);
     b.innerHTML = on ? `${ICONS.pen}<span>描画中</span>` : `${ICONS.move}<span>移動中</span>`;
     if (on) this.toast('描画モード：1本指で描く／2本指で視点', 1800);
+    this.updateStick();
   }
 
   // ---- ツール ----
@@ -447,6 +497,7 @@ export class UI {
       colors(); sep();
       group(label('大きさ'), ...slider(1, 80, st.textSize, v => v.toFixed(1) + 'cm', v => { st.textSize = v; }, true));
       group(label('書体'), ...FONTS.map(f => chip(f.name, st.font === f.id, () => { st.font = f.id; this.updateToolPanel(); })));
+      group(label('画質'), chip('高画質', st.textHQ, () => { st.textHQ = true; this.updateToolPanel(); }), chip('面に直接', !st.textHQ, () => { st.textHQ = false; this.updateToolPanel(); }));
       group(label('濃さ'), ...slider(0.1, 1, st.opacity, v => Math.round(v * 100) + '%', v => { st.opacity = v; }));
     } else if (name === 'image') {
       const it = tools.tools.image;
@@ -463,7 +514,7 @@ export class UI {
       if (!o) {
         group(label(isTouchDevice ? 'タップで選択／選択中のものはドラッグで移動／ドアをタップで退出' : 'クリックで選択・ドラッグで移動／ドアをクリックで退出'));
       } else {
-        const title = o.kind === 'image' ? '画像' : o.def.name;
+        const title = o.kind === 'image' ? (o.isText ? '文字' : '画像') : o.def.name;
         group(el('span', 'sel-title', title));
         sep();
         const ib = (icon, t, fn) => { const b = el('button', 'chip'); b.innerHTML = icon; b.title = t; b.style.padding = '4px 7px'; b.querySelector('svg').style.cssText = 'width:18px;height:18px;display:block'; b.onclick = () => { fn(); }; return b; };
@@ -663,6 +714,39 @@ export class UI {
       setTimeout(() => ta.focus(), 60);
     });
   }
+}
+
+// ---- 全画面 ----
+export function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+export function canFullscreen() {
+  const el = document.documentElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen);
+}
+export async function toggleFullscreen(ui) {
+  try {
+    if (isFullscreen()) {
+      await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen());
+    } else if (canFullscreen()) {
+      const el = document.documentElement;
+      await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen());
+    } else {
+      ui.toast('このブラウザでは全画面にできません。共有メニューの「ホーム画面に追加」から開くと、全画面で使えます', 5000);
+    }
+  } catch {
+    ui.toast('全画面にできませんでした');
+  }
+}
+
+// env(safe-area-inset-*) を実際のピクセルで取得
+let insetProbe = null;
+function safeInsets() {
+  if (!insetProbe) {
+    insetProbe = document.createElement('div');
+    insetProbe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding-left:env(safe-area-inset-left,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
+    document.body.appendChild(insetProbe);
+  }
+  const cs = getComputedStyle(insetProbe);
+  return { l: parseFloat(cs.paddingLeft) || 0, b: parseFloat(cs.paddingBottom) || 0 };
 }
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }

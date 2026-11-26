@@ -6,7 +6,7 @@ import { Player } from './player.js';
 import { History } from './history.js';
 import { Tools } from './tools.js';
 import { Input } from './input.js';
-import { UI } from './ui.js';
+import { UI, toggleFullscreen } from './ui.js';
 import { sfx, unlockAudio } from './audio.js';
 import { buildModel, CATALOG_BY_ID } from './furniture.js';
 import * as store from './storage.js';
@@ -74,6 +74,7 @@ class App {
       this.player.update(dt, this.world.colliders());
       this.world.update(dt, this.time);
       this.tools.update();
+      if ((this.frame = (this.frame || 0) + 1) % 12 === 0) this.ui.updateStick();
       this.renderer.render(this.world.scene, this.camera);
     } else {
       // タイトル背景：白い部屋をゆっくり見回す
@@ -350,6 +351,7 @@ class App {
         <button class="btn" data-a="save">保存する</button>
         <button class="btn" data-a="backup">バックアップを作成</button>
         <button class="btn" data-a="rename">名前を変更</button>
+        <button class="btn" data-a="fullscreen">全画面表示の切り替え</button>
         <button class="btn" data-a="settings">設定</button>
         <button class="btn" data-a="help">操作説明</button>
         <button class="btn" data-a="exit">保存してタイトルへ</button>
@@ -364,6 +366,7 @@ class App {
         const n = await this.ui.prompt('名前を変更', '', this.world.name);
         if (n && this.world) { this.world.name = n; this.ui.setPalaceName(n); box.querySelector('h3').textContent = n; this.markDirty(); }
       });
+      on('fullscreen', () => { close(); toggleFullscreen(this.ui); });
       on('settings', () => { close(); this.ui.openSettingsOverlay(); });
       on('help', () => { close(); this.ui.toggleHelp(); });
       on('exit', () => { this.exiting = true; close(); this.exitThroughDoor(); });

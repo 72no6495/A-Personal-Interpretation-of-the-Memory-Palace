@@ -212,12 +212,23 @@ export class Input {
       return;
     }
 
-    const w = window.innerWidth;
-    if (e.clientX < w * 0.45 && !this.stick.active && !this.drawMode) {
-      p.role = 'stick';
-      this.stick = { active: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
-      this.app.ui.showStick(e.clientX, e.clientY);
-      return;
+    if (!this.stick.active && !this.drawMode) {
+      if (settings.stickMode === 'fixed') {
+        // 固定スティック：スティックの周りを触ったときだけ
+        const c = this.app.ui.stickCenter();
+        if (Math.hypot(e.clientX - c.x, e.clientY - c.y) < 56 * 1.6) {
+          p.role = 'stick';
+          this.stick = { active: true, id: e.pointerId, ox: c.x, oy: c.y, x: 0, y: 0 };
+          this.app.ui.showStick(c.x, c.y);
+          this.touchMove(e);
+          return;
+        }
+      } else if (e.clientX < this.leftZoneWidth()) {
+        p.role = 'stick';
+        this.stick = { active: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
+        this.app.ui.showStick(e.clientX, e.clientY);
+        return;
+      }
     }
     if (n === 'hand' && this.tool.canDragAt(ndc)) {
       p.role = 'objdrag';
@@ -275,6 +286,12 @@ export class Input {
         break;
       }
     }
+  }
+
+  // 移動スティックが出る左側の範囲（横持ちは狭め）
+  leftZoneWidth() {
+    const w = window.innerWidth, h = window.innerHeight;
+    return w > h ? Math.min(w * 0.3, 300) : w * 0.45;
   }
 
   tap(ndc) {
