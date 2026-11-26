@@ -201,6 +201,9 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 .help-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; margin-top: 10px; }
 .help-grid kbd { font-family: inherit; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; font-size: 12px; white-space: nowrap; }
 .help-grid div:nth-child(odd) { text-align: right; }
+.help-tabs { margin: 6px 0 4px; }
+.btn-title-sub { background: transparent; box-shadow: none; border-color: transparent; color: var(--sub); padding: 10px 20px; }
+.btn-title-sub:hover, .btn-title-sub:focus-visible { background: rgba(255,255,255,0.7); border-color: var(--line); color: var(--ink); }
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
 #toast { position: fixed; left: 50%; top: calc(66px + var(--safe-t)); transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }

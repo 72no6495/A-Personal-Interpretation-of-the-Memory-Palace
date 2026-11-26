@@ -290,7 +290,11 @@ export class Input {
 
   // ---------- キーボード ----------
   onKeyDown(e) {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      // タイトル画面などでも Esc でダイアログを閉じる
+      if (e.code === 'Escape' && this.app.ui.modals.length) this.app.ui.closeTopModal();
+      return;
+    }
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (this.app.ui.modalOpen) {
