@@ -148,6 +148,7 @@ export class UI {
         if (a === 'new') this.app.startNew();
         if (a === 'load') this.showScreen('load');
         if (a === 'settings') this.showScreen('settings');
+        if (a === 'help') this.toggleHelp();
       });
     });
     this.$('load').querySelector('[data-action=back]').onclick = () => { sfx.click(); this.showScreen('title'); };
@@ -587,24 +588,45 @@ export class UI {
 
   toggleHelp() {
     if (this.modals.find(m => m.box.classList.contains('help'))) { this.closeTopModal(); return; }
+    const desk = [
+      ['WASD / 矢印', '移動'], ['マウス', '視点'], ['クリック', 'ツールを使う'], ['Q / E', 'ツール切替'], ['1〜6', 'ツールを選ぶ'],
+      ['F', '照準モード ⇄ カーソルモード'], ['右ドラッグ', '視点（カーソルモード）'], ['G', '見ている面の正面を向く'], ['Z', 'ズーム'],
+      ['C / Shift+C', 'ペンの色'], ['ホイール / [ ]', '太さ・大きさ'], ['Shift+ドラッグ', '直線'], ['R / Shift+R', '回転'],
+      ['T', '家具の色'], ['Delete / X', '削除'], ['Ctrl+D', '複製'], ['Ctrl+Z / Ctrl+Y', '元に戻す / やり直す'], ['Ctrl+S', '保存'],
+      ['Tab', '表示を隠す'], ['H', '操作説明'], ['Esc', 'メニュー'],
+    ];
+    const touch = [
+      ['画面の左側', 'タッチした場所にスティック → 移動'], ['画面の右側', 'スワイプで視点'], ['タップ', 'ツールを使う'],
+      ['ペン・消しゴム', '描画モード：1本指で描く'], ['描画モード中', '2本指で視点'], ['「描画中／移動中」', 'モード切替'],
+      ['手ツール', 'タップで選択、選択中のものをドラッグで移動'], ['右上のボタン', '正面を向く・ズーム・操作説明'], ['ドア', 'タップでバックアップ・退出'],
+    ];
+    const tools = [
+      ['手', '家具・画像を選んで移動・回転・拡大縮小・色変更・複製・削除。ドアを開く'],
+      ['ペン', '全8色。フリー・直線・矢印・四角・円。太さ・濃さ・手ぶれ補正'],
+      ['消しゴム', '描いた線を消す'],
+      ['文字', 'クリック／タップした場所に文字を書く（ゴシック・明朝・手書き風）'],
+      ['画像', '画像ファイルを壁・床・家具に貼る。上からペンで描ける'],
+      ['家具', '床・壁・天井・小物の家具を置く。テーブルや額縁などは描けて、写真を飾れて、小物を置ける'],
+    ];
+    const tabs = [['pc', 'PC'], ['touch', 'スマホ'], ['tools', 'ツール']];
+    let cur = isTouchDevice ? 'touch' : 'pc';
     this.openModal((box, close) => {
-      const desk = [
-        ['WASD / 矢印', '移動'], ['マウス', '視点'], ['クリック', 'ツールを使う'], ['Q / E', 'ツール切替'], ['1〜6', 'ツールを選ぶ'],
-        ['F', '照準モード ⇄ カーソルモード'], ['右ドラッグ', '視点（カーソルモード）'], ['G', '見ている面の正面を向く'], ['Z', 'ズーム'],
-        ['C / Shift+C', 'ペンの色'], ['ホイール / [ ]', '太さ・大きさ'], ['Shift+ドラッグ', '直線'], ['R / Shift+R', '回転'],
-        ['T', '家具の色'], ['Delete / X', '削除'], ['Ctrl+D', '複製'], ['Ctrl+Z / Ctrl+Y', '元に戻す / やり直す'], ['Ctrl+S', '保存'],
-        ['Tab', '表示を隠す'], ['Esc', 'メニュー'],
-      ];
-      const touch = [
-        ['画面の左側', 'タッチした場所にスティック → 移動'], ['画面の右側', 'スワイプで視点'], ['タップ', 'ツールを使う'],
-        ['ペン・消しゴム', '描画モード：1本指で描く'], ['描画モード中', '2本指で視点'], ['右の「描画中/移動中」', 'モード切替'],
-        ['手ツール', 'タップで選択、選択中のものをドラッグで移動'], ['ドア', 'タップでバックアップ・退出'],
-      ];
-      const rows = (isTouchDevice ? touch : desk).map(([k, v]) => `<div><kbd>${k}</kbd></div><div>${v}</div>`).join('');
-      box.innerHTML = `<h3>操作説明</h3><div class="help-grid">${rows}</div>
+      box.innerHTML = `<h3>操作説明</h3><div class="seg help-tabs"></div><div class="help-grid"></div>
         <p style="margin-top:16px">描いたものは自動で保存されます。ドアからはバックアップファイルを作成でき、タイトルの「宮殿を読み込む」から戻ってこられます。</p>
-        <div class="row"><button class="btn primary">閉じる</button></div>`;
-      box.querySelector('button').onclick = () => close();
+        <div class="row"><button class="btn primary" data-a="close">閉じる</button></div>`;
+      const seg = box.querySelector('.help-tabs'), grid = box.querySelector('.help-grid');
+      const render = () => {
+        seg.innerHTML = '';
+        for (const [id, name] of tabs) {
+          const b = document.createElement('button'); b.textContent = name; b.classList.toggle('on', id === cur);
+          b.onclick = () => { cur = id; sfx.click(); render(); };
+          seg.appendChild(b);
+        }
+        const rows = cur === 'pc' ? desk : cur === 'touch' ? touch : tools;
+        grid.innerHTML = rows.map(([k, v]) => `<div><kbd>${k}</kbd></div><div>${v}</div>`).join('');
+      };
+      render();
+      box.querySelector('[data-a=close]').onclick = () => { sfx.click(); close(); };
     }, { className: 'help' });
   }
 
