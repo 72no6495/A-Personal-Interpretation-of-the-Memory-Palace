@@ -29,6 +29,14 @@ export const ICONS = {
   chevron: svg('<path d="M7 10l5 5 5-5"/>'),
 };
 
+// ダイアログを開いてから選べるようになるまでの時間
+const ARM_MS = 450, ARM_AFTER_UP_MS = 250;
+const downPointers = new Map(); // pointerId → 押した時刻
+window.addEventListener('pointerdown', e => { downPointers.set(e.pointerId, performance.now()); }, true);
+const forget = e => downPointers.delete(e.pointerId);
+window.addEventListener('pointerup', forget, true);
+window.addEventListener('pointercancel', forget, true);
+
 const STICKY_COLORS = ['#fff1a6', '#ffd3dd', '#cfe5ff', '#d5f3cf', '#ffe1bd'];
 
 export class UI {
@@ -65,6 +73,31 @@ export class UI {
       if (!this.modals.length) this.app.onModalsClosed();
     };
     entry.close = close;
+    // 開いた直後は操作を受け付けない（ドアなどをタップした指の「離す／クリック」で
+    // 選択肢が押されてしまわないように）。指が離れてから少し待って有効にする。
+    const opened = performance.now();
+    // 開いた時点で押されていた指（1.5 秒以上前のものは取りこぼしとみなして無視）
+    const held = new Set([...downPointers].filter(([, t]) => opened - t < 1500).map(([id]) => id));
+    let releasedAt = 0;
+    const onRelease = e => { if (held.delete(e.pointerId)) releasedAt = performance.now(); };
+    window.addEventListener('pointerup', onRelease, true);
+    window.addEventListener('pointercancel', onRelease, true);
+    const ready = () => {
+      const now = performance.now();
+      return now - opened >= ARM_MS && (held.size === 0 || now - opened > 2500) && now - releasedAt >= ARM_AFTER_UP_MS;
+    };
+    const guard = e => { if (!ready()) { e.stopPropagation(); e.preventDefault(); } };
+    for (const t of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'touchstart', 'touchend']) back.addEventListener(t, guard, true);
+    back.classList.add('arming');
+    const arm = () => {
+      if (!back.isConnected) return;
+      if (ready()) {
+        back.classList.remove('arming');
+        window.removeEventListener('pointerup', onRelease, true);
+        window.removeEventListener('pointercancel', onRelease, true);
+      } else setTimeout(arm, 60);
+    };
+    setTimeout(arm, ARM_MS);
     if (dismissable) back.addEventListener('pointerdown', e => { if (e.target === back) close(); });
     build(box, close);
     this.$('modals').appendChild(back);
