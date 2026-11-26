@@ -36,6 +36,7 @@ input, textarea, select { font-family: inherit; }
   padding: calc(16px + var(--safe-t)) calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
 }
 #title { background: radial-gradient(ellipse at 50% 40%, rgba(255,255,255,0.55), rgba(255,255,255,0.88) 70%); flex-direction: column; }
+.title-corner { position: absolute; top: calc(12px + var(--safe-t)); right: calc(12px + var(--safe-r)); }
 .title-inner { text-align: center; animation: rise 1.4s ease both; }
 .title-mark { width: 54px; height: 70px; margin: 0 auto 26px; border: 1.5px solid var(--ink); position: relative; opacity: 0.85; }
 .title-mark span { position: absolute; right: 8px; top: 38px; width: 7px; height: 1.5px; background: var(--ink); }
@@ -180,6 +181,8 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 #btn-drawmode.on { background: var(--ink); color: #fff; }
 
 #stick { position: fixed; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; background: rgba(255,255,255,.35); border: 1.5px solid rgba(60,60,70,.25); pointer-events: none !important; z-index: 11; }
+#stick { transition: opacity .25s; }
+#stick.idle { opacity: 0.35; }
 #stick-knob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(60,60,70,.35); }
 
 /* ---------- モーダル ---------- */
@@ -242,10 +245,11 @@ body.touch #tool-panel { flex-wrap: nowrap; justify-content: flex-start; }
   body.touch #dock { left: calc(12px + var(--safe-l)); right: calc(84px + var(--safe-r)); transform: none; bottom: calc(8px + var(--safe-b)); max-width: none; align-items: center; }
   body.touch #side-buttons { right: calc(74px + var(--safe-r)); top: calc(8px + var(--safe-t)); flex-direction: row; }
   body.touch #topbar { right: calc(250px + var(--safe-r)); }
-  body.touch #topbar .top-right { position: fixed; right: calc(74px + 4 * 50px + var(--safe-r)); top: calc(8px + var(--safe-t)); }
+  body.touch #topbar .top-right { position: fixed; right: calc(74px + 5 * 50px + var(--safe-r)); top: calc(8px + var(--safe-t)); }
   body.touch #topbar { top: calc(8px + var(--safe-t)); }
   body.touch #btn-drawmode { right: calc(78px + var(--safe-r)); top: 50%; bottom: auto; transform: translateY(-50%); }
   body.touch #catalog { width: min(620px, calc(100vw - 200px)); }
+  body.touch.fixed-stick #dock { left: calc(176px + var(--safe-l)); }
   body.touch .cat-item { width: 70px; }
   body.touch .cat-item img { width: 54px; height: 54px; }
   body.touch .cat-item small { display: none; }

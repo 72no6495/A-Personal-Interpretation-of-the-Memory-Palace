@@ -257,29 +257,35 @@ class TextTool {
     if (!t) return;
     if (t.target.type === 'door') { this.app.openDoorMenu(); return; }
     if (t.target.type !== 'surface') return;
-    const target = { surface: t.target.surface, uv: t.hit.uv.clone() };
+    const target = { surface: t.target.surface, uv: t.hit.uv.clone(), point: t.hit.point.clone() };
     const camFwd = new THREE.Vector3();
     this.app.camera.getWorldDirection(camFwd);
     this.app.ui.openTextDialog(text => this.place(target, text, camFwd));
   }
 
-  async place({ surface: s, uv }, text, camFwd) {
-    text = (text || '').replace(/\s+$/, '');
-    if (!text) return;
-    const st = this.tools.state;
-    const font = FONTS.find(f => f.id === st.font) || FONTS[0];
-    try { await document.fonts.load(`${font.weight} 40px ${font.css}`, text); } catch { /* 無視 */ }
-    const p = s.uvToPx(uv);
-    const ppm = s.pxPerMeter();
-    const sizePx = Math.max(6, st.textSize / 100 * ppm);
-    // 文字の上方向を決める
+  // 面の上での文字の回転（キャンバス座標、時計回り）
+  textAngle(s, camFwd) {
     const n = s.worldNormal();
     const upWorld = Math.abs(n.y) > 0.7 ? camFwd.clone().setY(0).normalize() : new THREE.Vector3(0, 1, 0);
     if (upWorld.lengthSq() < 0.01) upWorld.set(0, 0, -1);
     const q = new THREE.Quaternion(); s.group.getWorldQuaternion(q);
     const local = upWorld.applyQuaternion(q.invert());
-    const ux = local.x, uy = -local.y; // キャンバス座標
-    const ang = Math.atan2(ux, -uy);
+    return Math.atan2(local.x, local.y);
+  }
+
+  async place(target, text, camFwd) {
+    text = (text || '').replace(/\s+$/, '');
+    if (!text) return;
+    const st = this.tools.state;
+    const font = FONTS.find(f => f.id === st.font) || FONTS[0];
+    try { await document.fonts.load(`${font.weight} 40px ${font.css}`, text); } catch { /* 無視 */ }
+    if (st.textHQ) return this.placeObject(target, text, camFwd, font);
+
+    const { surface: s, uv } = target;
+    const p = s.uvToPx(uv);
+    const ppm = s.pxPerMeter();
+    const sizePx = Math.max(6, st.textSize / 100 * ppm);
+    const ang = this.textAngle(s, camFwd);
 
     const ctx = s.ctx;
     ctx.save();
@@ -305,6 +311,50 @@ class TextTool {
     s.markDrawn();
     const after = s.getRegion(rect);
     this.app.history.push({ undo: () => s.putRegion(before, rect), redo: () => s.putRegion(after, rect) });
+    this.app.markDirty();
+    sfx.paste();
+  }
+
+  // 高画質：文字だけの高解像度オブジェクトとして貼る（小さい文字もくっきり）
+  async placeObject(target, text, camFwd, font) {
+    const st = this.tools.state;
+    let host = target.surface;
+    if (host.kind === 'image') host = host.owner.host;
+    if (!host || !this.app.world.surfaces.has(host.key)) return;
+    const sizeM = st.textSize / 100;
+    const lines = text.split('\n');
+    const measure = document.createElement('canvas').getContext('2d');
+    // 文字の高さが最低 160px になる解像度（最大 2048px に収める）
+    let ppm = Math.max(host.pxPerMeter() * 2, 160 / sizeM);
+    const layout = ppm => {
+      const px = sizeM * ppm;
+      measure.font = `${font.weight} ${px}px ${font.css}`;
+      const maxW = Math.max(...lines.map(l => measure.measureText(l).width), px * 0.5);
+      const pad = px * 0.25;
+      return { px, lh: px * 1.3, w: Math.ceil(maxW + pad * 2), h: Math.ceil(lines.length * px * 1.3 + pad * 2 - px * 0.3) };
+    };
+    let L = layout(ppm);
+    const big = Math.max(L.w, L.h);
+    if (big > 2048) { ppm *= 2048 / big; L = layout(ppm); }
+    const c = document.createElement('canvas');
+    c.width = L.w; c.height = L.h;
+    const ctx = c.getContext('2d');
+    ctx.font = `${font.weight} ${L.px}px ${font.css}`;
+    ctx.fillStyle = st.color;
+    ctx.globalAlpha = st.opacity;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    lines.forEach((l, i) => ctx.fillText(l, L.w / 2, L.h / 2 + (i - (lines.length - 1) / 2) * L.lh));
+    const src = c.toDataURL('image/png');
+    const el = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+    const lp = host.worldToLocal(target.point);
+    const w = this.app.world;
+    const obj = await w.addImageFromElement({ src, el, host, x: lp.x, y: lp.y, rot: -this.textAngle(host, camFwd), w: L.w / ppm, h: L.h / ppm, isText: true });
+    let bundle = null;
+    this.app.history.push({
+      undo: () => { bundle = w.removeObject(obj); this.tools.deselectIf(obj); },
+      redo: () => { if (bundle) w.restoreObject(bundle); },
+    });
     this.app.markDirty();
     sfx.paste();
   }
@@ -633,6 +683,7 @@ export class Tools {
       smoothing: settings.smoothing,
       shape: 'free',
       textSize: 10,    // cm
+      textHQ: true,    // 文字を高画質オブジェクトとして貼る
       font: 'gothic',
       imageSize: 0.8,  // m
       furnitureType: null,
@@ -787,7 +838,7 @@ export class Tools {
     const dx = Math.min(0.3, o.host.width * 0.1), dy = -Math.min(0.3, o.host.height * 0.1);
     let copy;
     if (o.kind === 'image') {
-      copy = await w.addImage({ src: o.src, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, w: o.w, h: o.h, scale: o.scale, draw: o.surface.hasContent ? o.surface.canvas.toDataURL() : null });
+      copy = await w.addImage({ isText: o.isText, src: o.src, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, w: o.w, h: o.h, scale: o.scale, draw: o.surface.hasContent ? o.surface.canvas.toDataURL() : null });
     } else {
       copy = w.addFurniture({ type: o.type, tone: o.tone, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, scale: o.scale });
       for (const [n, s] of Object.entries(o.surfaces)) {

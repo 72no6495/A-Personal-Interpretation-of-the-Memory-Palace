@@ -23,9 +23,10 @@ export const DEFAULTS = {
   showHints: true,
   pixelRatio: isTouchDevice ? 1.5 : 2,
   autosave: true,
+  stickMode: 'float',      // 'float'：触った場所に出る / 'fixed'：位置を固定
 };
 
-export const QUALITY_PPM = { low: 112, medium: 160, high: 224 };
+export const QUALITY_PPM = { low: 112, medium: 160, high: 224, ultra: 320 };
 
 export const settings = { ...DEFAULTS };
 
