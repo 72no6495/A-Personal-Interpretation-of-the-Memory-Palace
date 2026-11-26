@@ -14,6 +14,14 @@ python3 -m http.server 8000
 
 GitHub Pages などの静的ホスティングにそのまま置いても動きます（three.js は `js/lib` に同梱）。
 
+### GitHub Pages で公開する
+
+1. リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする
+2. `main` ブランチに push すると `.github/workflows/pages.yml` が自動で公開します（Actions タブから手動実行も可）
+3. 公開先：`https://<ユーザー名>.github.io/A-Personal-Interpretation-of-the-Memory-Palace/`
+
+※ 保存データはブラウザごと・公開URLごとに保存されます。別の端末へ移すときはドアからバックアップを作成してください。
+
 ## 遊び方
 
 - **タイトル画面**：新しい宮殿を作る／宮殿を読み込む／設定
