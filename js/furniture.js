@@ -541,14 +541,79 @@ const BUILDERS = {
     };
   },
 
+  // 水飲み鳥：ゆっくり前後に揺れ、ときどき深くお辞儀して水を飲み、また起き上がる
+  drinkingbird(t) {
+    const stand = M(t), g = group();
+    const red = M(0xd8473f), liquid = M(0xc9322c, { transparent: true, opacity: 0.85 });
+    const black = M(0x1e1e20), white = M(0xffffff), beakM = M(0xf2b632), brass = M(0xc9a35a);
+    // 台と脚
+    g.add(box(0.09, 0.008, 0.06, stand, 0, 0.004, 0));
+    for (const sx of [-1, 1]) {
+      const leg = box(0.006, 0.12, 0.006, stand, sx * 0.03, 0.064, 0); leg.rotation.z = sx * 0.12; g.add(leg);
+    }
+    g.add(box(0.07, 0.004, 0.004, brass, 0, 0.122, 0)); // 支点の軸
+    // 揺れる本体（支点まわりに回る）
+    const body = new THREE.Group(); body.position.set(0, 0.122, 0); g.add(body);
+    // 下の球（赤い液体）とガラス管
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.022, 24, 16), liquid); bulb.position.y = -0.07; body.add(bulb);
+    const bulbGlass = new THREE.Mesh(new THREE.SphereGeometry(0.0235, 24, 16), glassMaterial()); bulbGlass.position.y = -0.07; bulbGlass.renderOrder = 2; body.add(bulbGlass);
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.16, 12), glassMaterial()); tube.position.y = 0.01; tube.renderOrder = 2; body.add(tube);
+    const level = cyl(0.0038, 0.0038, 0.07, liquid, 0, -0.035, 0, 10); body.add(level);
+    // 頭（赤いフェルト）
+    const head = new THREE.Group(); head.position.y = 0.105; body.add(head);
+    head.add(sphere(0.022, red, 0, 0, 0, 24));
+    // くちばし
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.034, 14), beakM);
+    beak.rotation.x = Math.PI / 2; beak.position.set(0, -0.004, 0.034); head.add(beak);
+    // 目（白目と黒目、少し外側を向く）
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Group(); eye.position.set(sx * 0.0108, 0.006, 0.0172); eye.rotation.y = sx * 0.42; head.add(eye);
+      eye.add(sphere(0.0078, white, 0, 0, 0, 18));
+      eye.add(sphere(0.0039, black, 0, 0.0004, 0.0058, 14));
+      eye.add(sphere(0.0012, white, 0.0013, 0.0019, 0.0092, 8)); // ハイライト
+    }
+    // シルクハット（つば・帽子・リボン）
+    const hat = new THREE.Group(); hat.position.y = 0.019; hat.rotation.z = -0.08; head.add(hat);
+    hat.add(cyl(0.025, 0.025, 0.003, black, 0, 0.0015, 0, 28));
+    hat.add(cyl(0.0145, 0.0155, 0.026, black, 0, 0.016, 0, 24));
+    hat.add(cyl(0.0157, 0.0158, 0.005, M(0xb3302a), 0, 0.0055, 0, 24));
+    g.userData.birdBody = body;
+    const off = Math.random() * 9;
+    const P = 9;
+    return {
+      group: g, surfaces: [],
+      animate(time) {
+        const u = (time + off) % P;
+        let a;
+        const lean = u0 => 0.55 * (u0 / 5.5) + Math.sin(u0 * 2 * Math.PI / 1.15) * (0.1 + 0.05 * u0 / 5.5);
+        if (u < 5.5) a = lean(u);
+        else if (u < 6.3) { const k = (u - 5.5) / 0.8; const a0 = lean(5.5); a = a0 + (1.38 - a0) * k * k; }
+        else if (u < 7.0) a = 1.38 + Math.sin((u - 6.3) * 18) * 0.02;
+        else { const tau = u - 7.0; a = 1.38 * Math.exp(-2.3 * tau) * Math.cos(4.6 * tau); }
+        body.rotation.x = a;
+      },
+    };
+  },
+  glass(t) {
+    const g = group();
+    const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.03, 0.11, 32, 1, true), glassMaterial());
+    outer.position.y = 0.055; outer.renderOrder = 2; g.add(outer);
+    const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.008, 32), glassMaterial()); bottom.position.y = 0.004; bottom.renderOrder = 2; g.add(bottom);
+    const water = new THREE.Mesh(new THREE.CylinderGeometry(0.0335, 0.0295, 0.072, 32), M(0x9fcfee, { transparent: true, opacity: 0.45, depthWrite: false }));
+    water.position.y = 0.044; water.renderOrder = 1; g.add(water);
+    return { group: g, surfaces: [] };
+  },
+
   // ---------- 機能のある小物・壁の物 ----------
   monitor(t) {
     const m = M(t), g = group(box(0.2, 0.012, 0.13, m, 0, 0.006, 0));
     g.add(box(0.035, 0.2, 0.02, m, 0, 0.11, -0.03));
     g.add(box(0.58, 0.36, 0.025, m, 0, 0.36, -0.01));
-    g.add(box(0.55, 0.33, 0.002, M(0x1f2124), 0, 0.36, 0.0035));
+    g.add(screenMesh(0.55, 0.33, 0, 0.36, 0.0035));
     return { group: g, surfaces: [face('screen', 0.55, 0.33, 0, 0.36, 0.0046, { label: '画面', hires: true })] };
   },
+  wallmonitor(t) { return wallMonitor(t, 0.96, 0.54); },
+  wallmonitorL(t) { return wallMonitor(t, 1.68, 0.945); },
   nameplate(t) {
     const m = M(t), g = group(box(0.24, 0.014, 0.07, m, 0, 0.007, 0));
     const plate = new THREE.Group(); plate.position.set(0, 0.014, 0.01); plate.rotation.x = -0.45;
@@ -675,6 +740,23 @@ export function currentMonth(offset = 0, from = null) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// モニターの画面（宮殿の情報を映す。表示は monitors.js が描く）
+function screenMesh(w, h, x, y, z) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: 0x15171a }));
+  m.position.set(x, y, z); m.name = 'screen-display';
+  return m;
+}
+
+function wallMonitor(t, W, H) {
+  const m = M(t), g = group();
+  const bez = 0.018, d = 0.035;
+  g.add(box(W * 0.3, H * 0.4, 0.02, M(DARK), 0, 0, 0.01)); // 壁の金具
+  g.add(box(W + bez * 2, H + bez * 2, d, m, 0, 0, 0.02 + d / 2));
+  g.add(screenMesh(W, H, 0, 0, 0.02 + d + 0.0006));
+  g.add(box(0.05, 0.008, 0.006, M(0x9fd59a, { emissive: 0x6fcf6a, emissiveIntensity: 0.6 }), W / 2 - 0.04, -H / 2 - bez / 2, 0.02 + d + 0.001)); // 電源ランプ
+  return { group: g, surfaces: [face('screen', W, H, 0, 0, 0.02 + d + 0.0012, { label: '画面', hires: true })] };
+}
+
 function frame(t, W, H) {
   const m = M(t), g = group();
   const b = 0.045, d = 0.035;
@@ -715,6 +797,8 @@ export const CATALOG = [
   { id: 'board', name: 'コルクボード', mount: 'wall', tone: 'oak', note: '描ける・写真' },
   { id: 'whiteboard', name: 'ホワイトボード', mount: 'wall', tone: 'gray', note: '描ける・写真' },
   { id: 'wallshelf', name: '壁棚', mount: 'wall', tone: 'oak', note: '小物を置ける' },
+  { id: 'wallmonitor', name: '壁掛けモニター', mount: 'wall', tone: 'black', note: '宮殿の情報を表示' },
+  { id: 'wallmonitorL', name: '大型モニター', mount: 'wall', tone: 'black', note: '宮殿の情報を表示' },
   { id: 'wallcabinet', name: '吊り戸棚', mount: 'wall', tone: 'white', note: '扉が開く・中に入れられる' },
   { id: 'calendar', name: 'カレンダー', mount: 'wall', tone: 'oak', note: '予定を書ける' },
   { id: 'chalkboard', name: '黒板', mount: 'wall', tone: 'oak', note: '描ける・写真' },
@@ -730,6 +814,8 @@ export const CATALOG = [
   { id: 'sign', name: '吊り看板', mount: 'ceiling', tone: 'oak', note: '両面に描ける' },
 
   { id: 'gramophone', name: 'グラモフォン', mount: 'small', tone: 'walnut', note: '音楽を再生できる' },
+  { id: 'drinkingbird', name: '水飲み鳥', mount: 'small', tone: 'oak', note: 'ずっと動いている' },
+  { id: 'glass', name: 'コップ', mount: 'small', tone: 'white', note: '水入り' },
   { id: 'vase', name: '花瓶', mount: 'small', tone: 'white' },
   { id: 'cup', name: 'カップ', mount: 'small', tone: 'white' },
   { id: 'books', name: '本', mount: 'small', tone: 'walnut' },
@@ -739,7 +825,7 @@ export const CATALOG = [
   { id: 'orb', name: '球のオブジェ', mount: 'small', tone: 'gray' },
   { id: 'crystal', name: '水晶玉', mount: 'small', tone: 'walnut' },
   { id: 'notebook', name: 'ノート', mount: 'small', tone: 'walnut', note: '開閉・ページに書ける' },
-  { id: 'monitor', name: 'モニター', mount: 'small', tone: 'black', note: '画面に描ける・写真' },
+  { id: 'monitor', name: 'モニター', mount: 'small', tone: 'black', note: '宮殿の情報を表示' },
   { id: 'nameplate', name: 'ネームプレート', mount: 'small', tone: 'oak', note: '書ける' },
   { id: 'key', name: '鍵', mount: 'small', tone: 'oak' },
   { id: 'photostand', name: 'フォトスタンド', mount: 'small', tone: 'oak', note: '描ける・写真' },

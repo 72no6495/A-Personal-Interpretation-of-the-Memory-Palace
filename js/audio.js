@@ -21,6 +21,11 @@ function ensure() {
     comp.connect(ctx.destination);
     buses.music = ctx.createGain(); buses.music.connect(comp);
     buses.ambient = ctx.createGain(); buses.ambient.connect(ctx.destination);
+    // 録画用：聞こえている音（効果音・環境音・音楽）をまとめて取り出す
+    if (ctx.createMediaStreamDestination) {
+      buses.record = ctx.createMediaStreamDestination();
+      master.connect(buses.record); buses.ambient.connect(buses.record); comp.connect(buses.record);
+    }
     // 共有の残響
     buses.reverb = ctx.createConvolver();
     buses.reverb.buffer = impulse(ctx, 3.2, 2.4);

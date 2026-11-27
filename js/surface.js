@@ -66,6 +66,7 @@ export class Surface {
     this.group.add(this.overlay);
 
     this.hasContent = false;
+    this.version = 0; // 描くたびに増える（統計の数え直しに使う）
     this.encodeDirty = false;
     this.needsUpload = false;
     this._cache = null;
@@ -97,6 +98,7 @@ export class Surface {
   }
 
   markDrawn() {
+    this.version++;
     this.hasContent = true;
     this.encodeDirty = true;
     this.needsUpload = true;

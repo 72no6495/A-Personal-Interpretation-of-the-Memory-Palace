@@ -3,6 +3,7 @@ import { settings, saveSettings, resetSettings, isTouchDevice } from './settings
 import { PEN_COLORS, SHAPES, FONTS, TOOL_ORDER, TOOL_INFO } from './tools.js';
 import { CATALOG, TONES, TONE_KEYS, MOUNT_NAMES, currentMonth } from './furniture.js';
 import { TRACKS } from './music.js';
+import { PAGES as MONITOR_PAGES } from './monitors.js';
 import { sfx } from './audio.js';
 
 const svg = (inner, vb = '0 0 24 24') => `<svg viewBox="${vb}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -589,6 +590,11 @@ export class UI {
         }
         sep();
         const world = this.app.world;
+        if (this.app.monitors.isMonitor(o)) {
+          sep();
+          const cur = o.state.monitorPage || 'auto';
+          group(label('画面'), ...MONITOR_PAGES.map(pg => chip(pg.name, cur === pg.id, () => { this.app.monitors.setPage(o, pg.id); this.updateToolPanel(); })));
+        }
         if (o.kind === 'furniture' && o.type === 'gramophone') {
           sep();
           const playing = this.app.music.isPlaying(o) ? o.state.track : null;
@@ -605,7 +611,8 @@ export class UI {
           }
           if (world.hasLight(o)) {
             const on = o.state.light !== false;
-            group(chip(on ? '消灯' : '点灯', false, () => {
+            const isMon = this.app.monitors.isMonitor(o);
+            group(chip(isMon ? (on ? '電源を切る' : '電源を入れる') : (on ? '消灯' : '点灯'), false, () => {
               world.setLight(o, !on); (on ? sfx.lightOff : sfx.lightOn).call(sfx); this.app.markDirty(); this.updateToolPanel();
             }));
           }
@@ -728,13 +735,13 @@ export class UI {
       ['F', '照準モード ⇄ カーソルモード'], ['右ドラッグ', '視点（カーソルモード）'], ['G', '見ている面の正面を向く'], ['Z', 'ズーム'],
       ['C / Shift+C', 'ペンの色'], ['ホイール / [ ]', '太さ・大きさ'], ['Shift+ドラッグ', '直線'], ['R / Shift+R', '回転'],
       ['T', '家具の色'], ['Delete / X', '削除'], ['Ctrl+D', '複製'], ['Ctrl+Z / Ctrl+Y', '元に戻す / やり直す'], ['Ctrl+S', '保存'],
-      ['P', '撮影モード（クリック／スペースで撮影）'], ['VR のボタン', 'VR ヘッドセットで入る（対応端末のみ）'], ['クリック（手）', '扉・引き出し・ふたの開閉、明かりの点灯'],
+      ['P', '撮影モード（クリック／スペースで撮影・録画）'], ['V / C（撮影中）', '写真⇄動画 / カメラの切り替え'], ['VR のボタン', 'VR ヘッドセットで入る（対応端末のみ）'], ['クリック（手）', '扉・引き出し・ふたの開閉、明かりの点灯'],
       ['Tab', '表示を隠す'], ['H', '操作説明'], ['Esc', 'メニュー'],
     ];
     const touch = [
       ['画面の左側', 'タッチした場所にスティック → 移動'], ['画面の右側', 'スワイプで視点'], ['タップ', 'ツールを使う'],
       ['ペン・消しゴム', '描画モード：1本指で描く'], ['描画モード中', '2本指で視点'], ['「描画中／移動中」', 'モード切替'],
-      ['手ツール', 'タップで選択、選択中のものをドラッグで移動。扉・引き出し・明かりはタップで開閉・点灯'], ['カメラのボタン', '撮影モード'], ['VR のボタン', 'VR ヘッドセットで入る（対応端末のみ）'], ['右上のボタン', '正面を向く・ズーム・操作説明'], ['ドア', 'タップでバックアップ・退出'],
+      ['手ツール', 'タップで選択、選択中のものをドラッグで移動。扉・引き出し・明かりはタップで開閉・点灯'], ['カメラのボタン', '撮影モード（写真・動画、定点・手ブレ・シアターカメラ）'], ['VR のボタン', 'VR ヘッドセットで入る（対応端末のみ）'], ['右上のボタン', '正面を向く・ズーム・操作説明'], ['ドア', 'タップでバックアップ・退出'],
     ];
     const tools = [
       ['手', '家具・画像を選んで移動・回転・拡大縮小・色変更・複製・削除。ドアを開く'],

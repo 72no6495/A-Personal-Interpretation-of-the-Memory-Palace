@@ -39,6 +39,7 @@ export class Player {
   }
 
   look(dx, dy) {
+    if (this.lookLocked) return; // 定点・シアターカメラ中
     dx /= this.zoom; dy /= this.zoom;
     this.yaw -= dx;
     this.pitch -= dy * (settings.invertY ? -1 : 1);

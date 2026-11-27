@@ -232,6 +232,7 @@ class StrokeTool {
     this.stroke = null;
     if (!st || !st.rect || st.rect.w <= 0 || st.rect.h <= 0) return;
     const s = st.surface, rect = st.rect;
+    if (this.app.world && !this.eraser) this.app.world.stats.strokes++;
     const before = s.snapshotRegion(rect);
     const after = s.getRegion(rect);
     this.app.history.push({
@@ -662,19 +663,23 @@ class HandTool {
     if (t && t.target.type === 'door') { this.app.openDoorMenu(); return; }
     const obj = this.resolve(t);
     const part = this.partAt(t, obj);
+    const was = obj && obj === this.tools.selected;
     if (obj !== this.tools.selected) { this.tools.setSelected(obj); if (obj && !part) sfx.pick(); }
-    if (part) this.togglePart(obj, part);
+    if (part && part !== 'light') this.togglePart(obj, part);
+    else if (was && this.app.monitors.isMonitor(obj)) { this.app.monitors.next(obj); sfx.click(); }
+    else if (part) this.togglePart(obj, part);
   }
 
   down(ndc) {
     const t = this.app.pickAt(ndc);
     if (t && t.target.type === 'door') { this.app.openDoorMenu(); return; }
     const obj = this.resolve(t);
+    const was = !!obj && obj === this.tools.selected;
     if (obj !== this.tools.selected) { this.tools.setSelected(obj); if (obj) sfx.pick(); }
     if (!obj) return;
     const lp = obj.host.worldToLocal(t.hit.point);
     this.drag = {
-      obj, moved: false, startPoint: t.hit.point.clone(), part: this.partAt(t, obj),
+      obj, moved: false, startPoint: t.hit.point.clone(), part: this.partAt(t, obj), was,
       before: { host: obj.host, x: obj.x, y: obj.y, rot: obj.rot, scale: obj.scale },
       offset: { x: lp.x - obj.x, y: lp.y - obj.y }, offsetHost: obj.host,
     };
@@ -701,7 +706,12 @@ class HandTool {
     this.drag = null;
     if (!d) return;
     this.app.ui.setDragging(false);
-    if (!d.moved) { if (d.part) this.togglePart(d.obj, d.part); return; }
+    if (!d.moved) {
+      // 選択中のモニターをもう一度クリック → 次の画面
+      if (d.was && this.app.monitors.isMonitor(d.obj) && d.part !== 'music') { this.app.monitors.next(d.obj); sfx.click(); return; }
+      if (d.part) this.togglePart(d.obj, d.part);
+      return;
+    }
     const o = d.obj;
     this.tools.pushTransform(o, d.before, { host: o.host, x: o.x, y: o.y, rot: o.rot, scale: o.scale });
     sfx.place();
