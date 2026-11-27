@@ -478,6 +478,8 @@ export class MusicManager {
 // ============================================================
 const WOODEN = new Set(['chair', 'stool', 'sofa', 'bed', 'bookshelf', 'cabinet', 'tansu', 'nightstand', 'wardrobe', 'desk', 'table', 'lowtable', 'wallshelf', 'wallcabinet', 'pedestal', 'storagebox', 'standboard']);
 const CLOCKS = new Set(['clock', 'clockS']);
+const PAPER = new Set(['bookshelf', 'books', 'notebook']);
+const PLANTS = new Set(['plant', 'succulent', 'vase']);
 
 class AmbientEngine {
   constructor(app) {
@@ -518,19 +520,36 @@ class AmbientEngine {
 
   // 今の宮殿に置いてある家具から、鳴らせる音の候補を集める
   candidates() {
-    const list = [{ kind: 'low', w: 3 }, { kind: 'sub', w: 2 }, { kind: 'wind', w: 3 }];
+    // 部屋全体：低音・重低音・風・遠くの雨・家鳴り・換気の音・遠雷
+    const list = [
+      { kind: 'low', w: 3 }, { kind: 'sub', w: 2 }, { kind: 'wind', w: 3 },
+      { kind: 'rain', w: 1.2 }, { kind: 'knock', w: 1.5 }, { kind: 'air', w: 1.2 }, { kind: 'thunder', w: 0.5 },
+    ];
     const w = this.app.inGame && this.app.world;
     if (!w) return list;
-    const wood = [], clocks = [], lights = [];
+    const wood = [], clocks = [], lights = [], paper = [], plants = [], fans = [], birds = [], windows = [];
     for (const f of w.furniture.values()) {
       if (!f.root.parent) continue;
       if (WOODEN.has(f.type)) wood.push(f);
       if (CLOCKS.has(f.type)) clocks.push(f);
       if (w.hasLight(f) && f.state.light !== false) lights.push(f);
+      if (PAPER.has(f.type)) paper.push(f);
+      if (PLANTS.has(f.type)) plants.push(f);
+      if (f.type === 'fan') fans.push(f);
+      if (f.type === 'drinkingbird') birds.push(f);
+      if (f.type === 'window') windows.push(f);
     }
     if (wood.length) list.push({ kind: 'creak', w: 1.5 + Math.min(wood.length, 4) * 0.5, from: wood });
     if (clocks.length) list.push({ kind: 'clock', w: 2.5, from: clocks });
     if (lights.length) list.push({ kind: 'light', w: 1.5 + Math.min(lights.length, 3) * 0.3, from: lights });
+    if (paper.length) list.push({ kind: 'pages', w: 1.2, from: paper });
+    if (plants.length) list.push({ kind: 'leaves', w: 1.2, from: plants });
+    if (fans.length) list.push({ kind: 'fan', w: 1.5, from: fans });
+    if (birds.length) list.push({ kind: 'bird', w: 2, from: birds });
+    // 窓があれば、雨は窓のガラスから聞こえる
+    if (windows.length) { const r = list.find(x => x.kind === 'rain'); r.from = windows; r.w = 1.8; }
+    // ドアはいつもある
+    if (w.door) list.push({ kind: 'door', w: 1, from: [{ door: w.door }] });
     return list;
   }
 
@@ -545,9 +564,7 @@ class AmbientEngine {
     if (cand.from) {
       const f = pick(cand.from);
       const out = this.at(f);
-      if (cand.kind === 'creak') this.creak(out, t, f);
-      else if (cand.kind === 'clock') this.clock(out, t, f);
-      else this.light(out, t, f);
+      this[cand.kind](out, t, f);
       return cand.kind;
     }
     // 部屋全体の音（左右に少し振る）
@@ -564,8 +581,9 @@ class AmbientEngine {
     const c = this.c;
     const pan = c.createPanner();
     pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 1.2; pan.rolloffFactor = 1.1;
-    const p = new THREE.Vector3(); f.root.getWorldPosition(p);
-    if (f.def.mount === 'floor') p.y += 0.4;
+    const p = new THREE.Vector3();
+    if (f.door) { f.door.getWorldPosition(p); p.y = 1.6; }
+    else { f.root.getWorldPosition(p); if (f.def.mount === 'floor') p.y += 0.4; }
     if (pan.positionX) { pan.positionX.value = p.x; pan.positionY.value = p.y; pan.positionZ.value = p.z; } else pan.setPosition(p.x, p.y, p.z);
     pan.connect(this.out);
     const out = c.createGain(); out.connect(pan);
@@ -601,7 +619,108 @@ class AmbientEngine {
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(rnd(0.12, 0.18), t + dur * rnd(0.3, 0.6)); g.gain.linearRampToValueAtTime(0.0001, t + dur);
   }
 
+  rain(out, t) { // 遠くの雨：ざーっという音に、ぽつぽつと粒の音が混じる
+    const c = this.c, dur = rnd(10, 16), g = c.createGain(); g.connect(out);
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200;
+    hp.connect(lp); lp.connect(g);
+    noiseSrc(c, t, dur, hp);
+    const peak = rnd(0.07, 0.1);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + dur * 0.35); g.gain.setValueAtTime(peak, t + dur * 0.65); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    const n = Math.floor(dur * 10);
+    for (let k = 0; k < n; k++) {
+      const tt = t + rnd(0.5, dur - 0.5), env = Math.sin(Math.PI * (tt - t) / dur);
+      const dg = c.createGain(); dg.connect(out);
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rnd(2200, 5500); bp.Q.value = 3; bp.connect(dg);
+      noiseSrc(c, tt, 0.03, bp);
+      dg.gain.setValueAtTime(0.0001, tt); dg.gain.exponentialRampToValueAtTime(rnd(0.08, 0.25) * env + 0.01, tt + 0.002); dg.gain.exponentialRampToValueAtTime(0.0001, tt + 0.025);
+    }
+  }
+  knock(out, t) { // 家鳴り：建物がコツッ、ピシッと鳴る
+    const c = this.c, n = Math.random() < 0.4 ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      const tt = t + k * rnd(0.12, 0.5), g = c.createGain(); g.connect(out);
+      const o = osc(c, 'sine', rnd(160, 320), tt, tt + 0.2, g); o.frequency.exponentialRampToValueAtTime(rnd(90, 140), tt + 0.12);
+      g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(rnd(0.2, 0.35), tt + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.16);
+      const cg = c.createGain(); cg.connect(out);
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rnd(900, 1800); bp.Q.value = 4; bp.connect(cg);
+      noiseSrc(c, tt, 0.04, bp);
+      cg.gain.setValueAtTime(0.0001, tt); cg.gain.exponentialRampToValueAtTime(0.25, tt + 0.002); cg.gain.exponentialRampToValueAtTime(0.0001, tt + 0.035);
+    }
+  }
+  air(out, t) { // 換気・空調のかすかな音
+    const c = this.c, dur = rnd(8, 13), g = c.createGain(); g.connect(out);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(rnd(500, 800), t); lp.frequency.linearRampToValueAtTime(rnd(700, 1100), t + dur); lp.Q.value = 0.5; lp.connect(g);
+    noiseSrc(c, t, dur, lp);
+    const h = c.createGain(); h.gain.value = 0.25; h.connect(g); osc(c, 'sine', rnd(110, 130), t, t + dur, h);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(rnd(0.08, 0.1), t + 3); g.gain.setValueAtTime(0.09, t + dur - 3); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
+  thunder(out, t) { // 遠雷：遠くでゴロゴロと何度か響く
+    const c = this.c, dur = rnd(6, 9), g = c.createGain(); g.connect(out);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = rnd(140, 220); lp.Q.value = 0.7; lp.connect(g);
+    noiseSrc(c, t, dur, lp);
+    g.gain.setValueAtTime(0.0001, t);
+    let tt = t;
+    for (let k = 0; k < 5; k++) {
+      tt += rnd(0.4, 1.4);
+      if (tt > t + dur - 1) break;
+      g.gain.linearRampToValueAtTime(rnd(0.25, 0.55) * (1 - k * 0.12), tt);
+      g.gain.linearRampToValueAtTime(rnd(0.06, 0.15), tt + rnd(0.4, 0.9));
+    }
+    g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
+
   // ---- 家具から ----
+  door(out, t) { // ドアの蝶番がギィ…ときしむ
+    const c = this.c, dur = rnd(0.9, 1.7), g = c.createGain(); g.connect(out);
+    const b1 = c.createBiquadFilter(); b1.type = 'bandpass'; b1.frequency.value = rnd(700, 1100); b1.Q.value = 16; b1.connect(g);
+    const b2 = c.createBiquadFilter(); b2.type = 'bandpass'; b2.frequency.value = rnd(1600, 2300); b2.Q.value = 12; b2.connect(g);
+    const o = osc(c, 'sawtooth', rnd(14, 22), t, t + dur, b1); o.connect(b2);
+    o.frequency.linearRampToValueAtTime(rnd(35, 55), t + dur * 0.6); o.frequency.linearRampToValueAtTime(rnd(20, 30), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(rnd(0.5, 0.7), t + dur * 0.25); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
+  bird(out, t) { // 水飲み鳥：くちばしがコップに当たるコツンと、水のポチャ
+    const c = this.c;
+    const g = c.createGain(); g.connect(out);
+    const f0 = rnd(2100, 2700);
+    osc(c, 'sine', f0, t, t + 0.6, g);
+    const h = c.createGain(); h.gain.value = 0.3; h.connect(g); osc(c, 'sine', f0 * 2.7, t, t + 0.3, h);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    const tt = t + rnd(0.12, 0.25), wg = c.createGain(); wg.connect(out);
+    const o = osc(c, 'sine', rnd(500, 700), tt, tt + 0.12, wg); o.frequency.exponentialRampToValueAtTime(rnd(1300, 1800), tt + 0.07);
+    wg.gain.setValueAtTime(0.0001, tt); wg.gain.exponentialRampToValueAtTime(0.22, tt + 0.01); wg.gain.exponentialRampToValueAtTime(0.0001, tt + 0.09);
+  }
+  pages(out, t) { // 本やノートの紙がかさっとめくれる
+    const c = this.c, n = Math.floor(rnd(2, 5));
+    let tt = t;
+    for (let k = 0; k < n; k++) {
+      const d = rnd(0.12, 0.3), g = c.createGain(); g.connect(out);
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rnd(2500, 4500); bp.Q.value = 0.8; bp.connect(g);
+      noiseSrc(c, tt, d, bp);
+      g.gain.setValueAtTime(0.0001, tt); g.gain.linearRampToValueAtTime(rnd(0.2, 0.35), tt + d * 0.3); g.gain.linearRampToValueAtTime(0.0001, tt + d);
+      tt += d + rnd(0.05, 0.25);
+    }
+  }
+  leaves(out, t) { // 観葉植物の葉ずれ
+    const c = this.c, dur = rnd(1.8, 3.2), g = c.createGain(); g.connect(out);
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rnd(2500, 3800); bp.Q.value = 1.2; bp.connect(g);
+    noiseSrc(c, t, dur, bp);
+    g.gain.setValueAtTime(0.0001, t);
+    for (let tt = t; tt < t + dur; tt += rnd(0.08, 0.2)) g.gain.linearRampToValueAtTime(rnd(0.08, 0.36) * Math.sin(Math.PI * (tt - t) / dur), tt);
+    g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
+  fan(out, t) { // シーリングファンの羽根が空気を切る音
+    const c = this.c, dur = rnd(6, 10), g = c.createGain(); g.connect(out);
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 450; bp.Q.value = 0.9; bp.connect(g);
+    noiseSrc(c, t, dur, bp);
+    g.gain.setValueAtTime(0.0001, t);
+    const rate = 0.9; // 羽根4枚 × 約0.22回転/秒
+    for (let tt = t; tt < t + dur; tt += 1 / rate) {
+      const e = Math.sin(Math.PI * (tt - t) / dur) * 0.42 + 0.02;
+      g.gain.linearRampToValueAtTime(e, tt + 0.25 / rate); g.gain.linearRampToValueAtTime(e * 0.25, tt + 1 / rate);
+    }
+    g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
   creak(out, t) { // 木がきしむ音：細かい摩擦の連続を、木の響き（共鳴）に通す
     const c = this.c, n = Math.random() < 0.35 ? 2 : 1;
     let tt = t;

@@ -313,7 +313,7 @@ export class UI {
     row('画質', '低いほど動作が軽くなります', seg('pixelRatio', [[1, '軽量'], [1.5, '標準'], [2, '高精細']]));
     section('音');
     row('効果音の音量', null, range('volume', 0, 1, 0.05, pct));
-    row('環境音', '低音・風の音、置いてある家具のきしみ・時計・ライトの音', toggle('ambient'));
+    row('環境音', '低音・風・雨などの音と、置いてある家具やドアから聞こえる音', toggle('ambient'));
     row('環境音の音量', null, range('ambientVolume', 0, 1, 0.05, pct));
     row('音楽の音量', 'グラモフォンの音楽', range('musicVolume', 0, 1, 0.05, pct));
     section('保存');
