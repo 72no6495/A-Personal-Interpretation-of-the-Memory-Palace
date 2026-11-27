@@ -327,6 +327,9 @@ class PsyTechno extends Track {
   }
 }
 
+// 曲ごとの音量差をならす
+const TRACK_LEVEL = { ambient: 2.8, slowjazz: 1.45, swing: 0.8, psytechno: 0.85 };
+
 export const TRACKS = [
   { id: 'ambient', name: 'アンビエント', cls: AmbientTrack },
   { id: 'slowjazz', name: 'スロージャズ', cls: SlowJazz },
@@ -347,7 +350,7 @@ class Player {
     this.panner.refDistance = 1.4; this.panner.rolloffFactor = 0.9; this.panner.maxDistance = 30;
     this.panner.connect(buses.music);
     // 曲ごとの音量差をならす
-    const level = { ambient: 2.8, slowjazz: 1.45, swing: 0.8, psytechno: 0.85 }[trackId] || 1;
+    const level = TRACK_LEVEL[trackId] || 1;
     this.out = c.createGain(); this.out.gain.value = 0.0001; this.out.connect(this.panner);
     this.out.gain.setTargetAtTime(level, c.currentTime, 0.4);
     // 蓄音機らしく少しだけ帯域を絞る
@@ -364,7 +367,8 @@ class Player {
   }
   schedule() {
     const c = this.c, d = 60 / this.track.bpm / this.track.spb;
-    while (this.next < c.currentTime + 0.12) {
+    // 先読みを長めにとって、重い処理（保存など）があっても途切れにくくする
+    while (this.next < c.currentTime + 0.35) {
       try { this.track.step(this.step, this.next, d); } catch (e) { console.warn(e); }
       this.step++; this.next += d;
     }
@@ -382,6 +386,32 @@ class Player {
     this.out.gain.setTargetAtTime(0.0001, t, 0.15);
     setTimeout(() => { try { this.panner.disconnect(); } catch { /* 無視 */ } }, 1500);
   }
+}
+
+// ============================================================
+// 曲を音声データとして書き出す（動画づくりなど用。リアルタイムの再生と同じ作曲エンジン）
+// ============================================================
+export async function renderTrackOffline(trackId, seconds, sampleRate = 48000, volume = 0.5) {
+  const c = new OfflineAudioContext(2, Math.ceil(seconds * sampleRate), sampleRate);
+  const comp = c.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+  comp.connect(c.destination);
+  const master = c.createGain(); master.gain.value = volume * (TRACK_LEVEL[trackId] || 1); master.connect(comp);
+  master.gain.setValueAtTime(master.gain.value, Math.max(0, seconds - 1.5));
+  master.gain.linearRampToValueAtTime(0.0001, seconds);
+  const tone = c.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = trackId === 'psytechno' ? 16000 : 9000; tone.connect(master);
+  const dry = c.createGain(); dry.connect(tone);
+  const rev = c.createConvolver();
+  const len = Math.floor(sampleRate * 3.2), ir = c.createBuffer(2, len, sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.4); }
+  rev.buffer = ir;
+  const wet = c.createGain(); wet.connect(dry); wet.connect(rev);
+  const rg = c.createGain(); rg.gain.value = 0.35; rev.connect(rg); rg.connect(tone);
+  const T = TRACKS.find(x => x.id === trackId) || TRACKS[0];
+  const track = new T.cls({ c, dry, wet });
+  const d = 60 / track.bpm / track.spb;
+  for (let i = 0, t = 0.05; t < seconds - 0.2; i++, t += d) track.step(i, t, d);
+  return c.startRendering();
 }
 
 // ============================================================
