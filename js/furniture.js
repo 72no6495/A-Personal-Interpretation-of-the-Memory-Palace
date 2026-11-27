@@ -507,6 +507,40 @@ const BUILDERS = {
     };
   },
 
+  gramophone(t, props) {
+    const m = M(t), brass = M(0xc9a35a), dark = M(0x1d1d1f), g = group();
+    g.add(box(0.3, 0.12, 0.3, m, 0, 0.06, 0));
+    g.add(box(0.31, 0.012, 0.31, m, 0, 0.124, 0));
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(sphere(0.012, brass, sx * 0.13, 0.006, sz * 0.13, 8));
+    // ターンテーブルとレコード
+    const disc = new THREE.Group(); disc.position.set(0, 0.13, 0.01);
+    disc.add(cyl(0.125, 0.125, 0.006, dark, 0, 0.003, 0, 40));
+    disc.add(cyl(0.035, 0.035, 0.0065, M(0xb8473d), 0, 0.0035, 0, 24));
+    disc.add(box(0.005, 0.0068, 0.03, M(0xf2e6c8), 0.012, 0.0036, 0));
+    g.add(disc);
+    // クランク
+    const crank = cyl(0.005, 0.005, 0.08, brass, 0.19, 0.07, 0.05, 8); crank.rotation.z = Math.PI / 2; g.add(crank);
+    g.add(sphere(0.012, M(0x5a3c2a), 0.235, 0.07, 0.05, 10));
+    // トーンアームとラッパ
+    g.add(cyl(0.012, 0.014, 0.05, brass, 0.11, 0.155, -0.11, 12));
+    const arm = cyl(0.006, 0.006, 0.12, brass, 0.07, 0.185, -0.06, 8); arm.rotation.set(0.9, 0, 0.5); g.add(arm);
+    const neck = cyl(0.012, 0.016, 0.16, brass, 0.11, 0.25, -0.12, 12); neck.rotation.x = -0.25; g.add(neck);
+    const pts = [];
+    for (let k = 0; k <= 16; k++) { const y = k / 16 * 0.34; pts.push(new THREE.Vector2(0.014 + 0.18 * Math.pow(k / 16, 3.2), y)); }
+    const horn = new THREE.Mesh(new THREE.LatheGeometry(pts, 40), M(0xd4ad62, { side: THREE.DoubleSide }));
+    const hornG = new THREE.Group(); hornG.position.set(0.11, 0.32, -0.15); hornG.rotation.set(0.95, 0, -0.12);
+    hornG.add(horn);
+    const mouth = new THREE.Object3D(); mouth.name = 'horn-mouth'; mouth.position.y = 0.34; hornG.add(mouth);
+    g.add(hornG);
+    g.userData.partName = 'music';
+    return {
+      group: g, surfaces: [],
+      animate(time, dt) {
+        if (props && props.track) disc.rotation.y -= (dt || 0.016) * 3.6; // 約 33 回転
+      },
+    };
+  },
+
   // ---------- 機能のある小物・壁の物 ----------
   monitor(t) {
     const m = M(t), g = group(box(0.2, 0.012, 0.13, m, 0, 0.006, 0));
@@ -547,7 +581,7 @@ const BUILDERS = {
     const g = group(box(0.42, 0.6, 0.004, M(0xffffff), 0, 0, 0.002));
     g.add(box(0.42, 0.035, 0.012, M(t), 0, 0.283, 0.006));
     for (const sx of [-1, 1]) g.add(cyl(0.006, 0.006, 0.03, M(ACCENT), sx * 0.12, 0.3, 0.008, 8));
-    const tex = calendarTexture(props.month);
+    const tex = calendarTexture(props.month || currentMonth());
     const page = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.54), new THREE.MeshLambertMaterial({ map: tex }));
     page.position.set(0, -0.02, 0.0042); g.add(page);
     return { group: g, surfaces: [face('page', 0.4, 0.54, 0, -0.02, 0.0045, { label: 'カレンダー', hires: true })] };
@@ -707,6 +741,7 @@ export const CATALOG = [
   { id: 'monitor', name: 'モニター', mount: 'small', tone: 'black', note: '画面に描ける・写真' },
   { id: 'nameplate', name: 'ネームプレート', mount: 'small', tone: 'oak', note: '書ける' },
   { id: 'key', name: '鍵', mount: 'small', tone: 'oak' },
+  { id: 'gramophone', name: 'グラモフォン', mount: 'small', tone: 'walnut', note: '音楽を再生できる' },
   { id: 'photostand', name: 'フォトスタンド', mount: 'small', tone: 'oak', note: '描ける・写真' },
   { id: 'desklamp', name: 'デスクランプ', mount: 'small', tone: 'white', note: 'タップで点灯・消灯' },
   { id: 'clockS', name: '置き時計', mount: 'small', tone: 'walnut' },
@@ -719,7 +754,8 @@ export const MOUNT_NAMES = { floor: '床', wall: '壁', ceiling: '天井', small
 export function buildModel(type, toneKey, props = {}) {
   const def = CATALOG_BY_ID[type];
   const tone = TONES[toneKey] || TONES[def.tone] || TONES.white;
-  const r = BUILDERS[type](tone.color, { month: props.month || currentMonth() });
+  // props は家具の状態（実物では保存される state そのもの。アニメーションから参照する）
+  const r = BUILDERS[type](tone.color, props);
   r.parts = r.parts || [];
   // モデル座標でのバウンディングボックス（面の配置には影響しない）
   r.group.updateMatrixWorld(true);

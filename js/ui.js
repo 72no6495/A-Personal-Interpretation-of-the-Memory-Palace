@@ -2,6 +2,7 @@
 import { settings, saveSettings, resetSettings, isTouchDevice } from './settings.js';
 import { PEN_COLORS, SHAPES, FONTS, TOOL_ORDER, TOOL_INFO } from './tools.js';
 import { CATALOG, TONES, TONE_KEYS, MOUNT_NAMES, currentMonth } from './furniture.js';
+import { TRACKS } from './music.js';
 import { sfx } from './audio.js';
 
 const svg = (inner, vb = '0 0 24 24') => `<svg viewBox="${vb}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -309,8 +310,12 @@ export class UI {
     row('照準を表示', null, toggle('showCrosshair'));
     row('操作ヒントを表示', null, toggle('showHints'));
     row('画質', '低いほど動作が軽くなります', seg('pixelRatio', [[1, '軽量'], [1.5, '標準'], [2, '高精細']]));
-    section('音と保存');
+    section('音');
     row('効果音の音量', null, range('volume', 0, 1, 0.05, pct));
+    row('環境音', 'ときどき、静かな音の断片が聞こえます', toggle('ambient'));
+    row('環境音の音量', null, range('ambientVolume', 0, 1, 0.05, pct));
+    row('音楽の音量', 'グラモフォンの音楽', range('musicVolume', 0, 1, 0.05, pct));
+    section('保存');
     row('自動保存', '約1分ごとに自動で保存します', toggle('autosave'));
     const reset = document.createElement('button'); reset.className = 'btn small'; reset.textContent = '初期設定に戻す';
     reset.onclick = async () => {
@@ -584,6 +589,12 @@ export class UI {
         }
         sep();
         const world = this.app.world;
+        if (o.kind === 'furniture' && o.type === 'gramophone') {
+          sep();
+          const playing = this.app.music.isPlaying(o) ? o.state.track : null;
+          group(label('曲'), ...TRACKS.map(tr => chip(tr.name, playing === tr.id, () => { this.app.music.play(o, tr.id); this.updateToolPanel(); })),
+            chip('停止', false, () => { this.app.music.stop(o); this.app.markDirty(); this.updateToolPanel(); }));
+        }
         if (o.kind === 'furniture' && (world.isOpenable(o) || world.hasLight(o) || o.type === 'calendar')) {
           sep();
           if (world.isOpenable(o)) {

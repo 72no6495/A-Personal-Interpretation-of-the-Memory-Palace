@@ -9,6 +9,7 @@ import { sfx } from './audio.js';
 import { disableRaycast } from './world.js';
 import { PEN_COLORS } from './tools.js';
 import { CATALOG, MOUNT_NAMES } from './furniture.js';
+import { TRACKS } from './music.js';
 
 const VR_TOOLS = ['hand', 'pen', 'eraser', 'furniture'];
 const TOOL_NAMES = { hand: '手', pen: 'ペン', eraser: '消しゴム', furniture: '家具' };
@@ -417,9 +418,14 @@ export class XRMode {
           add('回転', () => tools.rotateSelected(1));
           if (o.kind === 'furniture' && w.isOpenable(o)) add(w.anyOpen(o) ? '閉める' : '開ける', () => { const op = w.anyOpen(o); w.setAllOpen(o, !op); (op ? sfx.closeDrawer : sfx.openDrawer).call(sfx); app.markDirty(); });
           if (o.kind === 'furniture' && w.hasLight(o)) add(o.state.light !== false ? '消灯' : '点灯', () => { w.setLight(o, o.state.light === false); app.markDirty(); });
+          if (o.kind === 'furniture' && o.type === 'gramophone') {
+            const playing = app.music.isPlaying(o) ? o.state.track : null;
+            TRACKS.forEach((tr, k) => B(36 + k * 192, cy + 200, 180, 84, tr.name, () => app.music.play(o, tr.id), { on: playing === tr.id }));
+            B(36 + 4 * 192, cy + 200, 180, 84, '停止', () => { app.music.stop(o); app.markDirty(); });
+          }
           add('削除', () => tools.deleteSelected(), 150);
           add('解除', () => tools.setSelected(null), 150);
-          x.fillStyle = '#85858b'; x.font = `400 24px ${font}`; x.fillText('トリガーを押したまま動かすと移動できます', 40, cy + 200);
+          if (o.type !== 'gramophone') { x.fillStyle = '#85858b'; x.font = `400 24px ${font}`; x.fillText('トリガーを押したまま動かすと移動できます', 40, cy + 200); }
         } else {
           x.fillStyle = '#85858b'; x.textAlign = 'left'; x.font = `400 28px ${font}`;
           x.fillText('トリガーで選択・押したまま動かして移動', 40, cy + 40);

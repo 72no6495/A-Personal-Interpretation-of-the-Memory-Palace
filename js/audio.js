@@ -2,8 +2,11 @@
 import { settings } from './settings.js';
 
 let ctx = null;
-let master = null;
-let scratch = null; // ペン描画中の擦れ音
+let master = null;   // 効果音
+let scratch = null;  // ペン描画中の擦れ音
+// 環境音・音楽用の出力（音量は設定で別々に調整）
+export const buses = { ambient: null, music: null, reverb: null };
+const unlockListeners = [];
 
 function ensure() {
   if (!ctx) {
@@ -12,13 +15,54 @@ function ensure() {
     ctx = new AC();
     master = ctx.createGain();
     master.connect(ctx.destination);
+    // 音楽：最後に軽くコンプレッサーをかけて音割れを防ぐ
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+    comp.connect(ctx.destination);
+    buses.music = ctx.createGain(); buses.music.connect(comp);
+    buses.ambient = ctx.createGain(); buses.ambient.connect(ctx.destination);
+    // 共有の残響
+    buses.reverb = ctx.createConvolver();
+    buses.reverb.buffer = impulse(ctx, 3.2, 2.4);
+    buses.reverbOut = ctx.createGain(); buses.reverbOut.gain.value = 1;
+    buses.reverb.connect(buses.reverbOut);
+    buses.reverbOut.connect(buses.ambient);
   }
   if (ctx.state === 'suspended') ctx.resume();
-  master.gain.value = settings.volume * 0.6;
+  applyVolumes();
+  if (ctx.state === 'running' && unlockListeners.length) unlockListeners.splice(0).forEach(f => f(ctx));
   return ctx;
 }
 
-export function unlockAudio() { ensure(); }
+export function applyVolumes() {
+  if (!ctx) return;
+  master.gain.value = settings.volume * 0.6;
+  const t = ctx.currentTime;
+  buses.ambient.gain.setTargetAtTime(settings.ambient ? settings.ambientVolume * 0.9 : 0, t, 0.3);
+  buses.music.gain.setTargetAtTime(settings.musicVolume * 0.9, t, 0.1);
+}
+
+export function audioContext() { return ensure(); }
+// 音が鳴らせる状態になったら呼ぶ（初回のタップ後など）
+export function onAudioReady(fn) {
+  if (ctx && ctx.state === 'running') fn(ctx); else unlockListeners.push(fn);
+}
+
+// 残響用のインパルス応答（減衰するノイズ）
+function impulse(c, seconds, decay) {
+  const len = Math.floor(c.sampleRate * seconds);
+  const b = c.createBuffer(2, len, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return b;
+}
+
+export function unlockAudio() {
+  const c = ensure();
+  if (c && c.state !== 'running') c.resume().then(() => ensure());
+}
 
 function tone(freq, { dur = 0.12, type = 'sine', gain = 0.12, attack = 0.005, delay = 0, slideTo = null } = {}) {
   const c = ensure(); if (!c || settings.volume <= 0) return;

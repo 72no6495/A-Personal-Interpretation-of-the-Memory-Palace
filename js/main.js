@@ -9,6 +9,8 @@ import { Input } from './input.js';
 import { UI, toggleFullscreen } from './ui.js';
 import { PhotoMode } from './photo.js';
 import { XRMode } from './xr.js';
+import { MusicManager } from './music.js';
+import { applyVolumes } from './audio.js';
 import { sfx, unlockAudio } from './audio.js';
 import { buildModel, CATALOG_BY_ID } from './furniture.js';
 import * as store from './storage.js';
@@ -35,6 +37,7 @@ class App {
     this.input = new Input(this);
     this.photo = new PhotoMode(this);
     this.xr = new XRMode(this);
+    this.music = new MusicManager(this);
     this.history.onChange = () => this.ui.updateUndo();
 
     this.titleWorld = new Palace(this.renderer, { ppm: 24, name: 'title' });
@@ -64,6 +67,7 @@ class App {
   }
 
   applySettings() {
+    applyVolumes();
     if (this.renderer.xr.isPresenting) return;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, settings.pixelRatio));
     this.resize();
@@ -85,6 +89,7 @@ class App {
       this.player.update(dt, this.world.colliders());
       this.world.update(dt, this.time);
       this.tools.update();
+      this.music.update();
       if ((this.frameCount = (this.frameCount || 0) + 1) % 12 === 0) this.ui.updateStick();
       this.renderer.render(this.world.scene, this.camera);
     } else {
@@ -162,11 +167,13 @@ class App {
     void fade.offsetWidth;
     fade.style.transition = ''; fade.classList.remove('on');
     sfx.arrive();
+    this.music.syncFromWorld();
     this.ui.refreshLockHint();
     if (isNew) setTimeout(() => this.ui.toast(isTouchDevice ? '左側で移動、右側で見回し。下のボタンからツールを選べます' : 'クリックで開始。WASDで移動、マウスで見回し。H で操作説明', 4200), 900);
   }
 
   leaveGame() {
+    this.music.stopAll();
     this.photo.exit();
     this.xr.exit();
     this.input.enable(false);
