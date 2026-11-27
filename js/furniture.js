@@ -587,11 +587,16 @@ const BUILDERS = {
       animate(time) {
         const u = (time + off) % P;
         let a;
-        const lean = u0 => 0.55 * (u0 / 5.5) + Math.sin(u0 * 2 * Math.PI / 1.15) * (0.1 + 0.05 * u0 / 5.5);
-        if (u < 5.5) a = lean(u);
-        else if (u < 6.3) { const k = (u - 5.5) / 0.8; const a0 = lean(5.5); a = a0 + (1.38 - a0) * k * k; }
-        else if (u < 7.0) a = 1.38 + Math.sin((u - 6.3) * 18) * 0.02;
-        else { const tau = u - 7.0; a = 1.38 * Math.exp(-2.3 * tau) * Math.cos(4.6 * tau); }
+        // なめらかに動くよう、つなぎ目で角度も速さも急に変わらない曲線にしている
+        const smooth = k => k * k * (3 - 2 * k);
+        const lean = u0 => 0.55 * smooth(u0 / 5.5) + Math.sin(u0 * 2 * Math.PI / 1.15) * (0.1 + 0.05 * u0 / 5.5) * Math.min(1, u0 / 1.2);
+        if (u < 5.5) a = lean(u);                                                     // だんだん深く揺れる
+        else if (u < 6.4) { const a0 = lean(5.5); a = a0 + (1.38 - a0) * smooth((u - 5.5) / 0.9); } // 水を飲む
+        else if (u < 7.0) a = 1.38 + Math.sin((u - 6.4) / 0.6 * Math.PI) * 0.015;     // 少しとどまる
+        else { // 起き上がって揺れながら止まる（動き出しの速さが 0 になるようにした減衰振動）
+          const tau = u - 7.0, z = 2.3, w = 4.6;
+          a = 1.38 * Math.exp(-z * tau) * (Math.cos(w * tau) + (z / w) * Math.sin(w * tau)) * (1 - smooth(Math.max(0, tau - 1.6) / 0.4));
+        }
         body.rotation.x = a;
       },
     };
