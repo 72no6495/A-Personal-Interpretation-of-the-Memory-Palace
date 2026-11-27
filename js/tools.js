@@ -261,6 +261,8 @@ class TextTool {
     const target = { surface: t.target.surface, uv: t.hit.uv.clone(), point: t.hit.point.clone() };
     const camFwd = new THREE.Vector3();
     this.app.camera.getWorldDirection(camFwd);
+    // VR ではパレットの文字入力（Quest のキーボードも使える）
+    if (this.app.xr && this.app.xr.active) { this.app.xr.openText(text => this.place(target, text, camFwd)); return; }
     this.app.ui.openTextDialog(text => this.place(target, text, camFwd));
   }
 
