@@ -125,8 +125,8 @@ export class Input {
     if (this.app.photo.active) {
       if (this.mode === 'lock') {
         if (!this.locked) { this.requestLock(); return; }
-        if (e.button === 0) this.app.photo.shoot();
-      } else if (e.button === 0) this.app.photo.shoot();
+        if (e.button === 0) this.app.photo.shutter();
+      } else if (e.button === 0) this.app.photo.shutter();
       else if (e.button === 2) { this.rightDrag = true; this.rightMoved = 0; }
       return;
     }
@@ -343,7 +343,9 @@ export class Input {
     this.keys.add(e.code);
     if (this.app.photo.active) {
       if (e.code === 'KeyP' || (e.code === 'Escape' && this.mode === 'cursor')) this.app.photo.exit();
-      else if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); this.app.photo.shoot(); }
+      else if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); this.app.photo.shutter(); }
+      else if (e.code === 'KeyV') this.app.photo.toggleMedia();
+      else if (e.code === 'KeyC') this.app.photo.cycleCamera();
       else if (e.code === 'KeyF') this.toggleMode();
       else if (e.code === 'KeyH') this.app.ui.toggleHelp();
       return;

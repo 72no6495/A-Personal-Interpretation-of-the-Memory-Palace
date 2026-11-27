@@ -1,1 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#ffffff"/><rect x="186" y="118" width="140" height="250" fill="none" stroke="#2b2b2e" stroke-width="10"/><rect x="286" y="250" width="22" height="9" fill="#2b2b2e"/><path d="M96 400h320" stroke="#2b2b2e" stroke-width="6" stroke-linecap="round" opacity=".35"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="0" fill="#ffffff"/>
+  <!-- 頭 -->
+  <circle cx="256" cy="318" r="148" fill="#d8473f"/>
+  <ellipse cx="206" cy="262" rx="70" ry="44" fill="#e8645b" opacity="0.55"/>
+  <!-- 帽子 -->
+  <rect x="98" y="168" width="316" height="34" rx="17" fill="#1e1e20" transform="rotate(-5 256 185)"/>
+  <rect x="160" y="36" width="190" height="150" rx="14" fill="#1e1e20" transform="rotate(-5 256 185)"/>
+  <rect x="160" y="146" width="190" height="26" fill="#b3302a" transform="rotate(-5 256 185)"/>
+  <!-- 目 -->
+  <circle cx="196" cy="290" r="50" fill="#ffffff"/>
+  <circle cx="316" cy="290" r="50" fill="#ffffff"/>
+  <circle cx="206" cy="298" r="24" fill="#1e1e20"/>
+  <circle cx="306" cy="298" r="24" fill="#1e1e20"/>
+  <circle cx="215" cy="288" r="8" fill="#ffffff"/>
+  <circle cx="315" cy="288" r="8" fill="#ffffff"/>
+  <!-- くちばし -->
+  <path d="M220 352 Q256 336 292 352 L262 430 Q256 440 250 430 Z" fill="#f2b632"/>
+  <path d="M232 358 Q256 348 280 358" stroke="#d89a1e" stroke-width="5" fill="none" stroke-linecap="round"/>
+</svg>

@@ -12,7 +12,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="description" content="記憶の宮殿の独自解釈 — 真っ白な部屋に描き、貼り、置いて記憶する3Dメモアプリ">
   <title>A Personal Interpretation of the Memory Palace</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='6' y='6' width='52' height='52' rx='8' fill='%23fff' stroke='%23333' stroke-width='3'/%3E%3Crect x='24' y='22' width='16' height='30' fill='none' stroke='%23333' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Klee+One:wght@600&family=Shippori+Mincho:wght@500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
@@ -25,7 +26,7 @@
   <section id="title" class="screen">
     <button class="icon-btn title-corner" id="btn-title-fullscreen" title="全画面にする" aria-label="全画面"></button>
     <div class="title-inner">
-      <div class="title-mark" aria-hidden="true"><span></span></div>
+      <div class="title-mark" id="title-logo" aria-hidden="true"></div>
       <h1 class="title-en">A Personal Interpretation<br>of the Memory Palace</h1>
       <p class="title-ja">記憶の宮殿の、ひとつの解釈</p>
       <nav class="title-menu">
@@ -98,17 +99,19 @@
 
   <!-- 撮影モード -->
   <div id="photo-ui" class="hidden">
-    <div id="photo-frame"><i></i><i></i><i></i><i></i></div>
+    <div id="photo-frame"><i></i><i></i><i></i><i></i><b class="pf-vignette"></b><b class="pf-grain"></b></div>
     <div class="photo-top">
       <button class="icon-btn" data-a="exit" aria-label="撮影モードを終了">✕</button>
       <div class="photo-opts">
-        <div class="photo-filters"></div>
-        <div class="photo-aspects"></div>
+        <div class="photo-row"><div class="photo-media"></div><div class="photo-cams"></div><button class="chip" data-a="opts">オプション</button></div>
+        <div class="photo-row photo-opt-row"><div class="photo-filters"></div></div>
+        <div class="photo-row photo-opt-row"><div class="photo-aspects"></div></div>
+        <div class="photo-row photo-opt-row"><div class="photo-extra"></div></div>
       </div>
-      <button class="chip" data-a="grid">グリッド</button>
     </div>
+    <div class="photo-timer"></div>
     <div class="photo-bottom">
-      <button class="photo-last hidden" data-a="last" aria-label="撮った写真"></button>
+      <button class="photo-last hidden" data-a="last" aria-label="撮った写真・動画"></button>
       <label class="photo-zoom"><span>ズーム</span><input type="range" min="1" max="4" step="0.05" value="1" data-a="zoom"></label>
       <button class="photo-shutter" data-a="shutter" aria-label="撮影"><span></span></button>
     </div>
