@@ -26,6 +26,10 @@ function ensure() {
       buses.record = ctx.createMediaStreamDestination();
       master.connect(buses.record); buses.ambient.connect(buses.record); comp.connect(buses.record);
     }
+    // モニターの波形表示用：聞こえている音をまとめて分析する
+    buses.analyser = ctx.createAnalyser();
+    buses.analyser.fftSize = 2048; buses.analyser.smoothingTimeConstant = 0.78;
+    master.connect(buses.analyser); buses.ambient.connect(buses.analyser); comp.connect(buses.analyser);
     // 共有の残響
     buses.reverb = ctx.createConvolver();
     buses.reverb.buffer = impulse(ctx, 3.2, 2.4);
