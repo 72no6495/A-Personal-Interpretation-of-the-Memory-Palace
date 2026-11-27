@@ -490,6 +490,7 @@ class ImageTool {
 
   // 付箋（色付きの紙）を貼る準備
   async sticky(color) {
+    this._stickyColor = color;
     const c = document.createElement('canvas'); c.width = c.height = 256;
     const x = c.getContext('2d');
     x.fillStyle = color; x.fillRect(0, 0, 256, 256);
@@ -547,7 +548,10 @@ class ImageTool {
     if (!this.ghost) return;
     const hits = this.app.pickAll(ndc);
     const probe = { kind: 'image', w: 1, h: 1 };
-    const h = findHost(this.app, hits, probe, 'first') || (hits[0] && hits[0].target.type === 'surface' && hits[0].target.surface.kind === 'image' ? findHost(this.app, hits.slice(1), probe, 'first') : null);
+    // 手前に貼ってある画像や文字は通り抜けて、その下の面に貼る
+    const isImg = h => h.target.type === 'surface' && h.target.surface.kind === 'image';
+    const k = hits.findIndex(h => !isImg(h));
+    const h = findHost(this.app, hits, probe, 'first') || (k > 0 ? findHost(this.app, hits.slice(k), probe, 'first') : null);
     if (!h) { this.ghost.visible = false; this.valid = null; return; }
     const host = h.target.surface;
     const { w, h: hh } = this.sizeFor(host);
@@ -565,6 +569,8 @@ class ImageTool {
     if (!this.pending) {
       const t = this.app.pickAt(ndc);
       if (t && t.target.type === 'door') { this.app.openDoorMenu(); return; }
+      // VR ではパレットから写真や付箋を選ぶ
+      if (this.app.xr && this.app.xr.active) { this.app.xr.notify('パレットで写真か付箋を選んでください'); return; }
       this.choose(); return;
     }
     this.hover(ndc);

@@ -4,7 +4,7 @@
 // - 右 A：回転 / 右 B：メニューを目の前に / 左 X：元に戻す / 左 Y：やり直す
 // - 左手にメニュー板（ツール・色・太さ・家具・保存・VR終了）
 import * as THREE from './lib/three.module.min.js';
-import { settings, saveSettings } from './settings.js';
+import { settings, saveSettings, VR_QUALITY } from './settings.js';
 import { applyVolumes } from './audio.js';
 import { sfx } from './audio.js';
 import { disableRaycast } from './world.js';
@@ -12,8 +12,9 @@ import { PEN_COLORS } from './tools.js';
 import { CATALOG, MOUNT_NAMES } from './furniture.js';
 import { TRACKS } from './music.js';
 
-const VR_TOOLS = ['hand', 'pen', 'eraser', 'text', 'furniture'];
-const TOOL_NAMES = { hand: '手', pen: 'ペン', eraser: '消しゴム', text: '文字', furniture: '家具' };
+const VR_TOOLS = ['hand', 'pen', 'eraser', 'text', 'image', 'furniture'];
+const TOOL_NAMES = { hand: '手', pen: 'ペン', eraser: '消しゴム', text: '文字', image: '画像', furniture: '家具' };
+const STICKY_COLORS = ['#fff1a6', '#ffd3dd', '#cfe5ff', '#d5f3cf', '#ffe1bd'];
 const HEIGHT_MIN = -0.5, HEIGHT_MAX = 0.4; // 視点の高さの調整範囲（高くなりすぎないように）
 
 // パレットのキーボード
@@ -61,7 +62,11 @@ export class XRMode {
       const R = this.app.renderer;
       R.xr.enabled = true;
       R.xr.setReferenceSpaceType('local-floor');
+      const q = VR_QUALITY[settings.vrQuality] || VR_QUALITY.standard;
+      R.xr.setFramebufferScaleFactor(q.scale);
+      this.sessionQuality = settings.vrQuality;
       await R.xr.setSession(session);
+      R.xr.setFoveation(q.foveation);
       this.session = session;
       session.addEventListener('end', () => this.onEnd());
       this.onStart();
@@ -177,7 +182,11 @@ export class XRMode {
     return { ray: { origin, direction: dir } };
   }
 
+  // Quest のキーボードなど、ブラウザの画面が前に出ているあいだは VR 側の操作を受け付けない
+  blurred() { return !!(this.session && this.session.visibilityState && this.session.visibilityState !== 'visible'); }
+
   onSelectStart(c) {
+    if (this.blurred()) return;
     c.down = true;
     const r = this.rayOf(c);
     const p = this.panelHit(r);
@@ -188,6 +197,7 @@ export class XRMode {
   }
 
   onSelectEnd(c) {
+    if (!c.down) return;
     c.down = false;
     if (c.onPanel) { c.onPanel = false; return; }
     if (this.toolOwner === c) { this.app.tools.active.up(this.rayOf(c), {}); this.toolOwner = null; }
@@ -242,6 +252,11 @@ export class XRMode {
     const owner = this.toolOwner;
     if (owner && owner.down) app.tools.active.move(this.rayOf(owner), {});
     else if (ptr && !panelHover) app.tools.active.hover(this.rayOf(ptr));
+    // 文字入力中：入力欄の中身が変わったら描き直す（入力イベントが届かない端末もあるので毎フレーム確かめる）
+    if (this.mode === 'text' && this.ta) {
+      const v = this.ta.value + '|' + (this.composing || '');
+      if (v !== this.lastText) { this.lastText = v; this.panelDirty = true; }
+    }
     if (this.panelDirty) this.drawPanel();
   }
 
@@ -411,8 +426,10 @@ export class XRMode {
     this.textCb = onSubmit;
     this.kbd = this.kbd || 'kana';
     this.shift = false;
+    this.composing = '';
     const ta = this.textArea();
     ta.value = '';
+    // トリガーを押した直後（ユーザー操作の中）にフォーカスすると、Quest のキーボードが出る
     try { ta.focus({ preventScroll: true }); } catch { /* 無視 */ }
     if (!this.panelOn) this.recenterPanel();
     this.panelDirty = true;
@@ -420,16 +437,22 @@ export class XRMode {
   }
 
   // Quest のキーボード（システムキーボード）や Bluetooth キーボードの入力先
+  //   画面外や極端に小さい入力欄だと、端末によっては入力が届かないので、画面の中に透明で置く
   textArea() {
     if (!this.ta) {
       const ta = document.createElement('textarea');
       ta.id = 'xr-text-input';
       ta.setAttribute('aria-label', 'VR の文字入力');
-      ta.style.cssText = 'position:fixed;left:-1000px;top:0;width:200px;height:40px;opacity:0.01;';
-      ta.addEventListener('input', () => { this.panelDirty = true; });
+      ta.setAttribute('autocomplete', 'off');
+      ta.style.cssText = 'position:fixed;left:8px;bottom:8px;width:60vw;height:3em;font-size:16px;opacity:0;z-index:-1;border:0;resize:none;';
+      const dirty = () => { this.panelDirty = true; };
+      ta.addEventListener('input', dirty);
+      ta.addEventListener('change', dirty);
+      ta.addEventListener('keyup', dirty);
+      ta.addEventListener('compositionupdate', e => { this.composing = e.data || ''; dirty(); });
+      ta.addEventListener('compositionend', () => { this.composing = ''; dirty(); });
       ta.addEventListener('keydown', e => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.submitText(); }
-        else if (e.key === 'Escape') { e.preventDefault(); this.cancelText(); }
       });
       document.body.appendChild(ta);
       this.ta = ta;
@@ -438,6 +461,11 @@ export class XRMode {
   }
 
   get textValue() { return this.ta ? this.ta.value : ''; }
+  // 入力中（変換前）の文字も含めて表示する
+  get textShown() {
+    const v = this.textValue, c = this.composing || '';
+    return c && !v.endsWith(c) ? v + c : v;
+  }
   typeKey(ch) {
     const ta = this.textArea();
     if (ch === '゛' || ch === '゜' || ch === '小') {
@@ -462,9 +490,9 @@ export class XRMode {
   cancelText() { this.textCb = null; this.mode = 'main'; if (this.ta) this.ta.blur(); this.panelDirty = true; }
   showSystemKeyboard() {
     const ta = this.textArea();
-    try { ta.blur(); ta.focus({ preventScroll: true }); } catch { /* 無視 */ }
+    try { ta.blur(); ta.focus({ preventScroll: true }); const n = ta.value.length; ta.setSelectionRange(n, n); } catch { /* 無視 */ }
     const ok = this.session && this.session.isSystemKeyboardSupported;
-    this.notify(ok === false ? 'この端末ではシステムキーボードが使えません' : 'キーボードが出ないときはパレットで入力');
+    if (ok === false) this.notify('この端末では Quest のキーボードが使えません');
   }
 
   openTrackPanel(furn) {
@@ -515,7 +543,7 @@ export class XRMode {
       B(162, 520, 700, 110, '部屋に戻る', () => { this.mode = 'main'; });
     } else {
       // ツール
-      VR_TOOLS.forEach((t, i) => B(36 + i * 192, 90, 180, 100, TOOL_NAMES[t], () => {
+      VR_TOOLS.forEach((t, i) => B(36 + i * 160, 90, 148, 100, TOOL_NAMES[t], () => {
         tools.select(t);
         if (t === 'furniture' && !st.furnitureType) this.selectCatalog();
       }, { on: tools.current === t }));
@@ -539,6 +567,25 @@ export class XRMode {
         x.fillStyle = '#2b2b2e'; x.textAlign = 'center'; x.font = `500 32px ${font}`;
         x.fillText(`太さ ${st[key] < 1 ? st[key].toFixed(2) : st[key].toFixed(1)} cm`, 401, ry + 45);
         if (cur === 'pen') B(786, ry, 202, 90, st.smoothing > 0.2 ? '補正 あり' : '補正 なし', () => { st.smoothing = st.smoothing > 0.2 ? 0 : 0.35; });
+      } else if (cur === 'image') {
+        const it = tools.tools.image, p = it.pending;
+        B(36, cy, 300, 90, '写真を選ぶ', () => this.chooseImage(), { primary: !p });
+        x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `400 26px ${font}`; x.fillText('付箋', 356, cy + 45);
+        STICKY_COLORS.forEach((c, i) => B(420 + i * 114, cy, 102, 90, '', () => it.sticky(c).then(() => { this.panelDirty = true; }), { color: c, on: !!(p && p.sticky && it._stickyColor === c) }));
+        // この宮殿に貼ってある画像を、もう一度貼る
+        const recent = this.recentImages();
+        x.fillStyle = '#85858b'; x.font = `400 22px ${font}`; x.fillText(recent.length ? 'この宮殿の画像（もう一度貼る）' : '', 40, cy + 118);
+        recent.forEach((o, i) => {
+          const bx = 36 + i * 124, by2 = cy + 132;
+          B(bx, by2, 112, 112, '', () => { const el = o.texture.image; it.setPending({ src: o.src, el, aspect: o.w / o.h }); sfx.open(); }, { img: o.texture.image, on: !!(p && p.src === o.src) });
+        });
+        if (!p || !p.sticky) {
+          B(786, cy + 132, 96, 112, '−', () => { st.imageSize = Math.max(0.15, st.imageSize / 1.15); });
+          B(892, cy + 132, 96, 112, '＋', () => { st.imageSize = Math.min(4, st.imageSize * 1.15); });
+          x.fillStyle = '#2b2b2e'; x.textAlign = 'center'; x.font = `500 24px ${font}`; x.fillText(`大きさ ${st.imageSize.toFixed(2)} m`, 887, cy + 118);
+        }
+        x.fillStyle = p ? '#4d8dff' : '#85858b'; x.textAlign = 'left'; x.font = `400 24px ${font}`;
+        x.fillText(p ? '貼りたい場所をトリガーで選ぶと貼れます' : '写真を選ぶか、付箋の色を選んでください', 40, cy + 286);
       } else if (cur === 'furniture') {
         ['floor', 'wall', 'ceiling', 'small'].forEach((m, i) => B(36 + i * 160, cy, 148, 70, MOUNT_NAMES[m], () => { this.catMount = m; this.catIndex = 0; this.selectCatalog(); }, { on: this.catMount === m }));
         const list = CATALOG.filter(c => c.mount === this.catMount && !c.hidden);
@@ -586,13 +633,22 @@ export class XRMode {
       B(804, 520, 184, 96, 'VR を終了', () => this.exit(), { primary: true });
       x.fillStyle = '#9a9aa0'; x.textAlign = 'left'; x.font = `400 22px ${font}`;
       x.fillText('左スティック：移動　右スティック：向きを変える　B：パレットを呼ぶ', 40, 660);
-      x.fillText('画像・撮影・バックアップは、VR を終えてから使えます', 40, 700);
+      x.fillText('撮影・バックアップは、VR を終えてから使えます', 40, 700);
     }
 
     for (const b of btns) {
       const hover = this.hoverBtn && this.hoverBtn.x === b.x && this.hoverBtn.y === b.y && this.hoverBtn.label === b.label;
       rr(x, b.x, b.y, b.w, b.h, 18);
-      if (b.color) {
+      if (b.img) {
+        x.fillStyle = '#f4f4f6'; x.fill();
+        const im = b.img, iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+        if (iw && ih) {
+          const k = Math.min((b.w - 12) / iw, (b.h - 12) / ih), dw = iw * k, dh = ih * k;
+          try { x.drawImage(im, b.x + (b.w - dw) / 2, b.y + (b.h - dh) / 2, dw, dh); } catch { /* 無視 */ }
+        }
+        rr(x, b.x, b.y, b.w, b.h, 18);
+        x.lineWidth = b.on ? 8 : 3; x.strokeStyle = b.on ? '#2b2b2e' : hover ? '#4d8dff' : 'rgba(0,0,0,0.15)'; x.stroke();
+      } else if (b.color) {
         x.fillStyle = b.color; x.fill();
         x.lineWidth = b.on ? 8 : 3; x.strokeStyle = b.on ? '#2b2b2e' : 'rgba(0,0,0,0.15)'; x.stroke();
       } else {
@@ -600,7 +656,8 @@ export class XRMode {
         x.lineWidth = 3; x.strokeStyle = hover ? '#4d8dff' : '#e2e2e6'; x.stroke();
         x.fillStyle = b.on || b.primary ? '#ffffff' : b.disabled ? '#c4c4c8' : '#2b2b2e';
         x.textAlign = 'center'; x.font = `500 ${b.big ? 64 : b.key ? 34 : b.small ? 24 : 30}px ${font}`;
-        x.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 1);
+        const ls = String(b.label).split('\n'), lh = b.big ? 64 : b.key ? 34 : b.small ? 28 : 34;
+        ls.forEach((l, i) => x.fillText(l, b.x + b.w / 2, b.y + b.h / 2 + 1 + (i - (ls.length - 1) / 2) * lh));
       }
       if (hover && b.color) { x.lineWidth = 4; x.strokeStyle = '#4d8dff'; x.stroke(); }
     }
@@ -613,19 +670,37 @@ export class XRMode {
   // ---------- 文字入力の画面 ----------
   drawTextMode(x, B, font) {
     const st = this.app.tools.state;
+    const pal = !!settings.vrKeyboard;
     // 入力中の文字
-    rr(x, 36, 80, 740, 150, 18); x.fillStyle = '#f4f4f6'; x.fill();
-    const v = this.textValue;
-    const lines = v.split('\n').slice(-2);
+    const boxH = pal ? 150 : 300;
+    rr(x, 36, 80, 740, boxH, 18); x.fillStyle = '#f4f4f6'; x.fill();
+    const v = this.textShown;
+    const maxLines = pal ? 2 : 4;
+    const lines = v.split('\n').slice(-maxLines);
     x.textAlign = 'left'; x.fillStyle = v ? (st.color === '#ffffff' ? '#777' : st.color) : '#a0a0a6'; x.font = `500 40px ${font}`;
-    if (!v) x.fillText('ここに文字が入ります', 60, 155);
+    if (!v) x.fillText(pal ? 'ここに文字が入ります' : 'Quest のキーボードで入力してください', 60, 155);
     else lines.forEach((l, i) => { const t = l.length > 22 ? '…' + l.slice(-21) : l; x.fillText(t + (i === lines.length - 1 ? '｜' : ''), 60, 125 + i * 56 + (lines.length === 1 ? 28 : 0)); });
     x.fillStyle = '#85858b'; x.font = `400 20px ${font}`; x.textAlign = 'right';
-    x.fillText(`大きさ ${st.textSize.toFixed(1)}cm`, 764, 216);
+    x.fillText(`大きさ ${st.textSize.toFixed(1)}cm`, 764, 80 + boxH - 14);
     B(792, 80, 196, 70, '大きく', () => { st.textSize = Math.min(80, st.textSize * 1.25); });
     B(792, 160, 196, 70, '小さく', () => { st.textSize = Math.max(1, st.textSize / 1.25); });
-    // キーボード
-    const kw = 95, kh = 56, gx = 36, gy = 246, gap = 0;
+    const by = 612, bh = 76;
+    if (!pal) {
+      // ふだんは Quest のキーボードで入力する
+      B(792, 240, 196, 140, 'キーボード\nを出す', () => this.showSystemKeyboard(), { small: true });
+      x.fillStyle = '#85858b'; x.font = `400 24px ${font}`; x.textAlign = 'left';
+      x.fillText('キーボードが出ないときは「キーボードを出す」を押してください。', 40, 430);
+      x.fillText('Quest のキーボードが使えないときは、「パレットで入力」に切り替えると', 40, 470);
+      x.fillText('パレットのキーボードで入力できます（設定でも切り替えられます）。', 40, 506);
+      B(36, by, 260, bh, 'パレットで入力', () => { settings.vrKeyboard = true; saveSettings(); }, { small: true });
+      B(304, by, 160, bh, '⌫', () => this.backspace());
+      B(472, by, 160, bh, '改行', () => this.typeKey('\n'));
+      B(640, by, 160, bh, 'やめる', () => this.cancelText());
+      B(808, by, 180, bh, '書く', () => this.submitText(), { primary: true });
+      return;
+    }
+    // パレットのキーボード（Quest のキーボードが使えないときの代わり）
+    const kw = 95, kh = 56, gx = 36, gy = 246;
     if (this.kbd === 'kana') {
       for (let col = 0; col < 10; col++) for (let row = 0; row < 5; row++) {
         const ch = KANA[col][row];
@@ -641,12 +716,11 @@ export class XRMode {
       ABC_EXTRA.forEach((ch, i) => B(gx + i * kw, gy + 4 * (kh + 4), kw - 6, kh, ch, () => this.typeKey(ch), { key: true }));
       B(gx, gy + 5 * (kh + 4), kw * 2 - 6, kh, this.shift ? '⇧ 大文字' : '⇧', () => { this.shift = !this.shift; }, { key: true, on: this.shift });
     }
-    const by = 612 + gap, bh = 76;
     B(36, by, 120, bh, this.kbd === 'kana' ? 'ABC' : 'かな', () => { this.kbd = this.kbd === 'kana' ? 'abc' : 'kana'; this.shift = false; });
     B(164, by, 120, bh, '⌫', () => this.backspace());
     B(292, by, 140, bh, '空白', () => this.typeKey(' '));
     B(440, by, 120, bh, '改行', () => this.typeKey('\n'));
-    B(568, by, 200, bh, 'Questキーボード', () => this.showSystemKeyboard(), { small: true });
+    B(568, by, 200, bh, 'Questキーボード', () => { settings.vrKeyboard = false; saveSettings(); this.showSystemKeyboard(); }, { small: true });
     B(776, by, 100, bh, 'やめる', () => this.cancelText());
     B(884, by, 104, bh, '書く', () => this.submitText(), { primary: true });
   }
@@ -654,54 +728,96 @@ export class XRMode {
   // ---------- VR の設定 ----------
   drawSettings(x, B, font) {
     const set = (k, v) => { settings[k] = v; saveSettings(); this.applySettings(k); };
-    x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `500 36px ${font}`; x.fillText('VR の設定', 36, 108);
-    const rows = [
-      ['視点の高さ', () => {
-        const h = settings.vrHeight || 0;
-        B(400, 0, 90, 58, '−', () => set('vrHeight', Math.max(HEIGHT_MIN, Math.round((h - 0.05) * 100) / 100)), { disabled: h <= HEIGHT_MIN + 1e-6 });
-        B(620, 0, 90, 58, '＋', () => set('vrHeight', Math.min(HEIGHT_MAX, Math.round((h + 0.05) * 100) / 100)), { disabled: h >= HEIGHT_MAX - 1e-6 });
-        B(730, 0, 150, 58, 'もとに戻す', () => set('vrHeight', 0));
-        return `${h > 0 ? '+' : ''}${Math.round(h * 100)} cm`;
-      }],
-      ['移動の速さ', () => {
-        const v = settings.moveSpeed;
-        B(400, 0, 90, 58, '−', () => set('moveSpeed', Math.max(0.4, Math.round((v - 0.1) * 10) / 10)));
-        B(620, 0, 90, 58, '＋', () => set('moveSpeed', Math.min(2, Math.round((v + 0.1) * 10) / 10)));
-        return `× ${v.toFixed(1)}`;
-      }],
-      ['向きの変え方', () => {
-        [['snap30', '30°ずつ'], ['snap45', '45°ずつ'], ['smooth', 'なめらか']].forEach(([k, n], i) => B(400 + i * 196, 0, 184, 58, n, () => set('vrTurn', k), { on: settings.vrTurn === k }));
-      }],
-      ['パレットを持つ手', () => {
-        [['left', '左手'], ['right', '右手']].forEach(([k, n], i) => B(400 + i * 196, 0, 184, 58, n, () => set('vrPanelHand', k), { on: settings.vrPanelHand === k }));
-      }],
-      ['パレットの位置', () => {
-        [['hand', '手につく'], ['view', '視線について'], ['world', 'その場に置く']].forEach(([k, n], i) => B(400 + i * 196, 0, 184, 58, n, () => set('vrPanelFollow', k), { on: settings.vrPanelFollow === k }));
-      }],
-      ['パレットの大きさ', () => {
-        [[0.8, '小'], [1, '中'], [1.25, '大']].forEach(([k, n], i) => B(400 + i * 196, 0, 184, 58, n, () => set('vrPanelSize', k), { on: (settings.vrPanelSize || 1) === k }));
-      }],
-      ['環境音', () => {
-        [[true, 'オン'], [false, 'オフ']].forEach(([k, n], i) => B(400 + i * 196, 0, 184, 58, n, () => set('ambient', k), { on: !!settings.ambient === k }));
-      }],
+    const pct = v => Math.round(v * 100) + '%';
+    // −／＋で変える数値
+    const step = (key, lo, hi, d, fmt) => {
+      const v = settings[key];
+      B(400, 0, 90, 58, '−', () => set(key, Math.max(lo, Math.round((v - d) * 100) / 100)), { disabled: v <= lo + 1e-6 });
+      B(620, 0, 90, 58, '＋', () => set(key, Math.min(hi, Math.round((v + d) * 100) / 100)), { disabled: v >= hi - 1e-6 });
+      return fmt(v);
+    };
+    const choice = (key, opts) => () => { opts.forEach(([k, n], i) => B(400 + i * 148, 0, 138, 58, n, () => set(key, k), { on: settings[key] === k, small: n.length > 4 })); };
+    const onOff = key => choice(key, [[true, 'オン'], [false, 'オフ']]);
+    const PAGES = [
+      ['操作', [
+        ['視点の高さ', () => {
+          const h = settings.vrHeight || 0;
+          B(400, 0, 90, 58, '−', () => set('vrHeight', Math.max(HEIGHT_MIN, Math.round((h - 0.05) * 100) / 100)), { disabled: h <= HEIGHT_MIN + 1e-6 });
+          B(620, 0, 90, 58, '＋', () => set('vrHeight', Math.min(HEIGHT_MAX, Math.round((h + 0.05) * 100) / 100)), { disabled: h >= HEIGHT_MAX - 1e-6 });
+          B(730, 0, 150, 58, 'もとに戻す', () => set('vrHeight', 0), { small: true });
+          return `${h > 0 ? '+' : ''}${Math.round(h * 100)} cm`;
+        }],
+        ['移動の速さ', () => step('moveSpeed', 0.4, 2, 0.1, v => `× ${v.toFixed(1)}`)],
+        ['向きの変え方', choice('vrTurn', [['snap30', '30°ずつ'], ['snap45', '45°ずつ'], ['smooth', 'なめらか']])],
+        ['足音', onOff('footsteps')],
+        ['パレットのキーボード', onOff('vrKeyboard')],
+        ['手ぶれ補正（初期値）', () => step('smoothing', 0, 0.9, 0.05, pct)],
+      ]],
+      ['パレット', [
+        ['パレットを持つ手', choice('vrPanelHand', [['left', '左手'], ['right', '右手']])],
+        ['パレットの位置', choice('vrPanelFollow', [['hand', '手につく'], ['view', '視線につく'], ['world', 'その場']])],
+        ['パレットの大きさ', choice('vrPanelSize', [[0.8, '小'], [1, '中'], [1.25, '大']])],
+        ['自動保存', onOff('autosave')],
+      ]],
+      ['画質', [
+        ['VR の画質', choice('vrQuality', Object.entries(VR_QUALITY).map(([k, q]) => [k, q.name]))],
+        ['描画の解像度', choice('quality', [['low', '低'], ['medium', '中'], ['high', '高'], ['ultra', '最高']])],
+      ]],
+      ['音', [
+        ['効果音の音量', () => step('volume', 0, 1, 0.05, pct)],
+        ['環境音', onOff('ambient')],
+        ['環境音の音量', () => step('ambientVolume', 0, 1, 0.05, pct)],
+        ['音楽の音量', () => step('musicVolume', 0, 1, 0.05, pct)],
+      ]],
     ];
-    const y0 = 140, rh = 70;
+    this.setPage = Math.min(this.setPage || 0, PAGES.length - 1);
+    x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `500 34px ${font}`; x.fillText('設定', 36, 118);
+    PAGES.forEach(([name], i) => B(170 + i * 205, 84, 195, 66, name, () => { this.setPage = i; }, { on: this.setPage === i }));
+    const rows = PAGES[this.setPage][1];
+    const y0 = 172, rh = 72;
     rows.forEach(([label, fn], i) => {
       const y = y0 + i * rh;
       const before = this._btnsRef.length;
       const val = fn();
       for (let k = before; k < this._btnsRef.length; k++) this._btnsRef[k].y += y;
-      x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `400 28px ${font}`; x.fillText(label, 40, y + 30);
+      x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `400 27px ${font}`; x.fillText(label, 40, y + 30);
       if (val) { x.textAlign = 'center'; x.font = `500 28px ${font}`; x.fillText(val, 555, y + 30); }
     });
+    // 補足
+    x.fillStyle = '#85858b'; x.textAlign = 'left'; x.font = `400 22px ${font}`;
+    const note = {
+      0: '「パレットのキーボード」は、Quest のキーボードが使えないときの代わりです',
+      2: (settings.vrQuality !== this.sessionQuality ? '画質は次に VR に入ったときに反映されます（視野の端の粗さはすぐ反映）。' : '画質を上げるほど見た目がきれいになり、動作は重くなります。') + '\n描画の解像度は、次に宮殿を開いたときに反映されます',
+    }[this.setPage];
+    if (note) note.split('\n').forEach((l, i) => x.fillText(l, 40, y0 + rows.length * rh + 24 + i * 32));
     B(36, 650, 952, 84, '戻る', () => { this.mode = 'main'; }, { primary: true });
   }
 
   applySettings(key) {
     if (key === 'vrHeight' && this.rig) this.rig.position.y = settings.vrHeight;
     if (key === 'vrPanelHand' || key === 'vrPanelFollow' || key === 'vrPanelSize') this.placePanel();
-    if (key === 'ambient') applyVolumes();
+    if (key === 'ambient' || key === 'volume' || key === 'ambientVolume' || key === 'musicVolume') applyVolumes();
+    if (key === 'vrQuality') { const q = VR_QUALITY[settings.vrQuality]; try { this.app.renderer.xr.setFoveation(q.foveation); } catch { /* 無視 */ } }
+    if (key === 'smoothing') this.app.tools.state.smoothing = settings.smoothing;
     sfx.click();
+  }
+
+  // 写真を選ぶ（Quest ではブラウザのファイル選択が開く）
+  chooseImage() {
+    this.notify('写真を選んでください');
+    this.app.tools.tools.image.choose().then(() => { this.panelDirty = true; if (this.app.tools.tools.image.pending) this.notify('貼りたい場所をトリガーで選んでください'); });
+  }
+
+  // この宮殿に貼ってある画像（文字・付箋は除く、新しい順に6つ）
+  recentImages() {
+    const w = this.app.world, seen = new Set(), out = [];
+    if (!w) return out;
+    for (const o of [...w.images.values()].reverse()) {
+      if (o.isText || o.isSticky || seen.has(o.src) || !o.texture || !o.texture.image) continue;
+      seen.add(o.src); out.push(o);
+      if (out.length >= 6) break;
+    }
+    return out;
   }
 
   selectCatalog() {
