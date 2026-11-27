@@ -474,6 +474,7 @@ class FurnitureTool {
     });
     this.app.markDirty();
     sfx.place();
+    if (furn.type === 'gramophone') this.app.chooseTrack(furn);
   }
 }
 
