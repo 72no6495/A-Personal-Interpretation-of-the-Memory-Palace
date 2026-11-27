@@ -9,7 +9,7 @@ import { Input } from './input.js';
 import { UI, toggleFullscreen } from './ui.js';
 import { PhotoMode } from './photo.js';
 import { XRMode } from './xr.js';
-import { MusicManager } from './music.js';
+import { MusicManager, TRACKS } from './music.js';
 import { applyVolumes } from './audio.js';
 import { sfx, unlockAudio } from './audio.js';
 import { buildModel, CATALOG_BY_ID } from './furniture.js';
@@ -327,6 +327,24 @@ class App {
   onModalsClosed() {
     if (this.inGame && !this.exiting && !isTouchDevice && this.input.mode === 'lock' && !this.ui.overlay) this.input.requestLock();
     this.ui.refreshLockHint();
+  }
+
+  // グラモフォンを置いたとき：曲を選ぶ
+  chooseTrack(furn) {
+    if (this.xr.active) { this.xr.openTrackPanel(furn); return; }
+    this.ui.openModal((box, close) => {
+      box.innerHTML = `<h3>グラモフォン</h3><p>流す曲を選んでください。あとから手ツールでグラモフォンを選んでも変えられます。</p><div class="stack"></div>`;
+      const st = box.querySelector('.stack');
+      for (const tr of TRACKS) {
+        const b = document.createElement('button'); b.className = 'btn'; b.textContent = tr.name;
+        b.onclick = () => { close(); this.music.play(furn, tr.id); this.ui.onSelectionChange(furn); };
+        st.appendChild(b);
+      }
+      const later = document.createElement('button'); later.className = 'btn'; later.textContent = '今は流さない';
+      later.style.color = 'var(--sub)';
+      later.onclick = () => { sfx.click(); close(); };
+      st.appendChild(later);
+    }, { className: 'center' });
   }
 
   openDoorMenu() {

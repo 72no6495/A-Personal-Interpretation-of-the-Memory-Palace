@@ -729,6 +729,7 @@ export const CATALOG = [
   { id: 'fan', name: 'シーリングファン', mount: 'ceiling', tone: 'white' },
   { id: 'sign', name: '吊り看板', mount: 'ceiling', tone: 'oak', note: '両面に描ける' },
 
+  { id: 'gramophone', name: 'グラモフォン', mount: 'small', tone: 'walnut', note: '音楽を再生できる' },
   { id: 'vase', name: '花瓶', mount: 'small', tone: 'white' },
   { id: 'cup', name: 'カップ', mount: 'small', tone: 'white' },
   { id: 'books', name: '本', mount: 'small', tone: 'walnut' },
@@ -741,7 +742,6 @@ export const CATALOG = [
   { id: 'monitor', name: 'モニター', mount: 'small', tone: 'black', note: '画面に描ける・写真' },
   { id: 'nameplate', name: 'ネームプレート', mount: 'small', tone: 'oak', note: '書ける' },
   { id: 'key', name: '鍵', mount: 'small', tone: 'oak' },
-  { id: 'gramophone', name: 'グラモフォン', mount: 'small', tone: 'walnut', note: '音楽を再生できる' },
   { id: 'photostand', name: 'フォトスタンド', mount: 'small', tone: 'oak', note: '描ける・写真' },
   { id: 'desklamp', name: 'デスクランプ', mount: 'small', tone: 'white', note: 'タップで点灯・消灯' },
   { id: 'clockS', name: '置き時計', mount: 'small', tone: 'walnut' },

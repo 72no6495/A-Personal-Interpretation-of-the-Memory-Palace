@@ -391,7 +391,7 @@ export class MusicManager {
     this.app = app;
     this.furn = null;
     this.player = null;
-    this.ambient = new AmbientEngine();
+    this.ambient = new AmbientEngine(app);
   }
   isPlaying(furn) { return this.furn === furn && !!this.player; }
 
@@ -442,13 +442,14 @@ export class MusicManager {
 
   // 毎フレーム：聞く位置（カメラ）と音の出る位置（ラッパ）を更新
   update() {
-    const c = audioContext && this.player ? this.player.c : null;
     if (this.furn) {
       const w = this.app.world;
-      if (!w || !w.furniture.has(this.furn.id) || !this.furn.root.parent) { this.stop(); return; }
-      if (!this.furn.state.track) { this.stop(); return; }
+      if (!w || !w.furniture.has(this.furn.id) || !this.furn.root.parent) { this.stop(); }
+      else if (!this.furn.state.track) { this.stop(); }
     }
+    const c = this.player ? this.player.c : this.ambient.c;
     if (!c) return;
+    // 聞く位置（カメラ）を更新：音楽も環境音も、物の位置から聞こえる
     const cam = this.app.camera;
     const p = new THREE.Vector3(); cam.getWorldPosition(p);
     const f = new THREE.Vector3(); cam.getWorldDirection(f);
@@ -461,17 +462,25 @@ export class MusicManager {
     } else {
       L.setPosition(p.x, p.y, p.z); L.setOrientation(f.x, f.y, f.z, u.x, u.y, u.z);
     }
-    const src = this.furn.inner.getObjectByName('horn-mouth') || this.furn.root;
-    const sp = new THREE.Vector3(); src.getWorldPosition(sp);
-    this.player.setPosition(sp);
+    if (this.player && this.furn) {
+      const src = this.furn.inner.getObjectByName('horn-mouth') || this.furn.root;
+      const sp = new THREE.Vector3(); src.getWorldPosition(sp);
+      this.player.setPosition(sp);
+    }
   }
 }
 
 // ============================================================
-// 環境音：ときどき、断片的な音がどこからともなく鳴る
+// 環境音：不規則な間隔で、断片的な音が鳴る
+//   部屋全体：低音・重低音・風
+//   置いてある家具から：木の家具のきしみ・時計の音・点いているライトの音
 // ============================================================
+const WOODEN = new Set(['chair', 'stool', 'sofa', 'bed', 'bookshelf', 'cabinet', 'tansu', 'nightstand', 'wardrobe', 'desk', 'table', 'lowtable', 'wallshelf', 'wallcabinet', 'pedestal', 'storagebox', 'standboard']);
+const CLOCKS = new Set(['clock', 'clockS']);
+
 class AmbientEngine {
-  constructor() {
+  constructor(app) {
+    this.app = app;
     this.ducked = false;
     this.started = false;
     onAudioReady(c => this.start(c));
@@ -481,46 +490,163 @@ class AmbientEngine {
     this.started = true;
     this.c = c;
     this.out = c.createGain(); this.out.gain.value = 1; this.out.connect(buses.ambient);
-    this.timer = setTimeout(() => this.tick(), rnd(4000, 9000));
+    this.schedule(rnd(3000, 12000));
   }
   duck(on) {
     this.ducked = on;
     if (this.out) this.out.gain.setTargetAtTime(on ? 0.25 : 1, this.c.currentTime, 1.5);
   }
-  tick() {
-    try { if (settings.ambient && settings.ambientVolume > 0 && document.visibilityState === 'visible') this.fragment(); } catch (e) { console.warn(e); }
-    this.timer = setTimeout(() => this.tick(), rnd(14000, 38000));
+  schedule(ms) { clearTimeout(this.timer); this.timer = setTimeout(() => this.tick(), ms); }
+
+  // 次までの間隔：平均20秒ほどの不規則な間隔（指数分布）に、
+  // ときどき続けざまに鳴ったり、長く静かになったりする揺らぎを加える
+  nextDelay() {
+    const r = Math.random();
+    if (r < 0.1) return rnd(1200, 5000);          // 続けて鳴る
+    if (r < 0.2) return rnd(45000, 95000);        // 長い静けさ
+    const mean = 22000;
+    return Math.min(75000, 4000 + -Math.log(1 - Math.random()) * mean);
   }
-  // 断片の種類：鐘・和音のふくらみ・風・低い響き・まばらな音
-  fragment() {
-    const c = this.c, t = c.currentTime + 0.1;
-    const dest = this.out, wet = buses.reverb;
-    const keys = [50, 52, 55, 57, 59, 62, 64, 67, 69, 71, 74];
-    const kind = pick(['bells', 'bells', 'swell', 'wind', 'drone', 'plucks']);
+
+  tick() {
+    try {
+      if (settings.ambient && settings.ambientVolume > 0 && document.visibilityState === 'visible' && Math.random() < 0.92) this.fragment();
+    } catch (e) { console.warn(e); }
+    this.schedule(this.nextDelay());
+  }
+
+  // 今の宮殿に置いてある家具から、鳴らせる音の候補を集める
+  candidates() {
+    const list = [{ kind: 'low', w: 3 }, { kind: 'sub', w: 2 }, { kind: 'wind', w: 3 }];
+    const w = this.app.inGame && this.app.world;
+    if (!w) return list;
+    const wood = [], clocks = [], lights = [];
+    for (const f of w.furniture.values()) {
+      if (!f.root.parent) continue;
+      if (WOODEN.has(f.type)) wood.push(f);
+      if (CLOCKS.has(f.type)) clocks.push(f);
+      if (w.hasLight(f) && f.state.light !== false) lights.push(f);
+    }
+    if (wood.length) list.push({ kind: 'creak', w: 1.5 + Math.min(wood.length, 4) * 0.5, from: wood });
+    if (clocks.length) list.push({ kind: 'clock', w: 2.5, from: clocks });
+    if (lights.length) list.push({ kind: 'light', w: 1.5 + Math.min(lights.length, 3) * 0.3, from: lights });
+    return list;
+  }
+
+  fragment(kind = null) {
+    const list = this.candidates();
+    let cand = kind ? list.find(x => x.kind === kind) : null;
+    if (!cand) {
+      let r = Math.random() * list.reduce((a, x) => a + x.w, 0);
+      cand = list.find(x => (r -= x.w) <= 0) || list[0];
+    }
+    const c = this.c, t = c.currentTime + 0.05;
+    if (cand.from) {
+      const f = pick(cand.from);
+      const out = this.at(f);
+      if (cand.kind === 'creak') this.creak(out, t, f);
+      else if (cand.kind === 'clock') this.clock(out, t, f);
+      else this.light(out, t, f);
+      return cand.kind;
+    }
+    // 部屋全体の音（左右に少し振る）
+    const out = c.createGain();
     const pan = c.createStereoPanner ? c.createStereoPanner() : null;
-    const out = c.createGain(); out.gain.value = 1;
-    if (pan) { pan.pan.value = rnd(-0.7, 0.7); out.connect(pan); pan.connect(dest); pan.connect(wet); }
-    else { out.connect(dest); out.connect(wet); }
-    if (kind === 'bells') {
-      let tt = t; const n = Math.floor(rnd(2, 5));
-      for (let k = 0; k < n; k++) { I.bell(c, out, tt, pick(keys) + 12, 0.7); tt += rnd(0.4, 1.3); }
-    } else if (kind === 'swell') {
-      const root = pick([45, 47, 48, 50, 52]);
-      I.pad(c, out, t, [root, root + 7, root + pick([14, 16]), root + pick([19, 21])], rnd(5, 9), 0.9);
-    } else if (kind === 'wind') {
+    if (pan) { pan.pan.value = rnd(-0.6, 0.6); out.connect(pan); pan.connect(this.out); } else out.connect(this.out);
+    const send = c.createGain(); send.gain.value = 0.4; out.connect(send); send.connect(buses.reverb);
+    this[cand.kind](out, t);
+    return cand.kind;
+  }
+
+  // 家具の位置から鳴らす出力
+  at(f) {
+    const c = this.c;
+    const pan = c.createPanner();
+    pan.panningModel = 'HRTF'; pan.distanceModel = 'inverse'; pan.refDistance = 1.2; pan.rolloffFactor = 1.1;
+    const p = new THREE.Vector3(); f.root.getWorldPosition(p);
+    if (f.def.mount === 'floor') p.y += 0.4;
+    if (pan.positionX) { pan.positionX.value = p.x; pan.positionY.value = p.y; pan.positionZ.value = p.z; } else pan.setPosition(p.x, p.y, p.z);
+    pan.connect(this.out);
+    const out = c.createGain(); out.connect(pan);
+    const send = c.createGain(); send.gain.value = 0.25; out.connect(send); send.connect(buses.reverb);
+    setTimeout(() => { try { pan.disconnect(); } catch { /* 無視 */ } }, 20000);
+    return out;
+  }
+
+  // ---- 部屋全体 ----
+  low(out, t) { // 低い響き（ゆっくりふくらんで消える）
+    const c = this.c, g = c.createGain(); g.connect(out);
+    const r = pick([40, 41, 43, 45, 47]), dur = rnd(6, 11);
+    for (const m of [r, r + pick([7, 12])]) { const o = osc(c, 'sine', mtof(m), t, t + dur, g); o.detune.value = rnd(-5, 5); }
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(rnd(0.05, 0.08), t + dur * rnd(0.3, 0.5)); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
+  sub(out, t) { // 重低音のうなり（遠くの地鳴りのような）
+    const c = this.c, g = c.createGain(); g.connect(out);
+    const dur = rnd(5, 10);
+    const o = osc(c, 'sine', rnd(28, 38), t, t + dur, g);
+    o.frequency.linearRampToValueAtTime(rnd(26, 40), t + dur);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 90; lp.connect(g);
+    noiseSrc(c, t, dur, lp);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(rnd(0.12, 0.18), t + dur * 0.45); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
+  wind(out, t) { // 壁の向こうの風
+    const c = this.c, g = c.createGain(); g.connect(out);
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = rnd(1.5, 3); f.connect(g);
+    const dur = rnd(5, 12);
+    f.frequency.setValueAtTime(rnd(250, 500), t);
+    let tt = t;
+    while (tt < t + dur) { tt += rnd(1, 2.5); f.frequency.linearRampToValueAtTime(rnd(300, 1300), Math.min(tt, t + dur)); }
+    noiseSrc(c, t, dur, f);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(rnd(0.12, 0.18), t + dur * rnd(0.3, 0.6)); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  }
+
+  // ---- 家具から ----
+  creak(out, t) { // 木がきしむ音：細かい摩擦の連続を、木の響き（共鳴）に通す
+    const c = this.c, n = Math.random() < 0.35 ? 2 : 1;
+    let tt = t;
+    for (let k = 0; k < n; k++) {
+      const dur = rnd(0.25, 0.9);
       const g = c.createGain(); g.connect(out);
-      const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2; f.connect(g);
-      f.frequency.setValueAtTime(rnd(300, 600), t); f.frequency.linearRampToValueAtTime(rnd(700, 1400), t + 3); f.frequency.linearRampToValueAtTime(rnd(300, 600), t + 6.5);
-      noiseSrc(c, t, 7, f);
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06, t + 3); g.gain.linearRampToValueAtTime(0.0001, t + 7);
-    } else if (kind === 'drone') {
+      const b1 = c.createBiquadFilter(); b1.type = 'bandpass'; b1.frequency.value = rnd(350, 900); b1.Q.value = rnd(6, 14); b1.connect(g);
+      const b2 = c.createBiquadFilter(); b2.type = 'bandpass'; b2.frequency.value = rnd(1300, 2600); b2.Q.value = 9; b2.connect(g);
+      const o = osc(c, 'sawtooth', rnd(18, 45), tt, tt + dur, b1); o.connect(b2);
+      o.frequency.linearRampToValueAtTime(rnd(25, 70), tt + dur * rnd(0.4, 1));
+      g.gain.setValueAtTime(0.0001, tt); g.gain.linearRampToValueAtTime(rnd(0.5, 0.8), tt + dur * 0.3); g.gain.linearRampToValueAtTime(0.0001, tt + dur);
+      tt += dur + rnd(0.15, 0.6);
+    }
+  }
+  clock(out, t) { // 時計：しばらくのあいだ、チク・タクと聞こえる
+    const c = this.c, n = Math.floor(rnd(5, 13));
+    for (let k = 0; k < n; k++) {
+      const tt = t + k * 1.0 + rnd(-0.005, 0.005);
       const g = c.createGain(); g.connect(out);
-      const r = pick([38, 40, 43]);
-      for (const m of [r, r + 7]) { const o = osc(c, 'sine', mtof(m), t, t + 9, g); o.detune.value = rnd(-4, 4); }
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.07, t + 3.5); g.gain.linearRampToValueAtTime(0.0001, t + 9);
-    } else {
-      let tt = t; let m = pick(keys) + 12;
-      for (let k = 0; k < 4; k++) { I.vibe(c, out, tt, m, 0.6); m -= pick([2, 3, 5]); tt += rnd(0.5, 0.9); }
+      const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = k % 2 ? 2600 : 3300; f.Q.value = 12; f.connect(g);
+      noiseSrc(c, tt, 0.03, f);
+      const fade = Math.sin(Math.PI * (k + 0.5) / n); // 聞こえ始めと終わりは小さく
+      g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(2.6 * fade + 0.2, tt + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.03);
+    }
+  }
+  light(out, t, f) { // ライト：電球のかすかなジーという音と、ときどきのチリッという音
+    const c = this.c;
+    if (f.type === 'candle') { // キャンドルは芯のパチッという音
+      for (let k = 0; k < Math.floor(rnd(1, 4)); k++) {
+        const tt = t + rnd(0, 1.5), g = c.createGain(); g.connect(out);
+        const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800; hp.connect(g);
+        noiseSrc(c, tt, 0.02, hp); g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(0.9, tt + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.018);
+      }
+      return;
+    }
+    const dur = rnd(3, 7), g = c.createGain(); g.connect(out);
+    const lp = c.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 480; lp.Q.value = 0.8; lp.connect(g);
+    const base = pick([100, 120]);
+    osc(c, 'sawtooth', base, t, t + dur, lp);
+    const h = c.createGain(); h.gain.value = 0.5; h.connect(lp); osc(c, 'sine', base * 2, t, t + dur, h);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(rnd(0.07, 0.1), t + dur * 0.3); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    if (Math.random() < 0.6) { // フィラメントのチリッ
+      const tt = t + rnd(0.5, dur - 0.5), cg = c.createGain(); cg.connect(out);
+      const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500; hp.connect(cg);
+      noiseSrc(c, tt, 0.06, hp);
+      cg.gain.setValueAtTime(0.0001, tt); cg.gain.exponentialRampToValueAtTime(0.35, tt + 0.002); cg.gain.exponentialRampToValueAtTime(0.0001, tt + 0.05);
     }
   }
 }

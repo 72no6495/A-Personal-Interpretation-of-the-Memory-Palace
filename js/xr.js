@@ -349,6 +349,13 @@ export class XRMode {
     this._msgT = setTimeout(() => { this.message = ''; this.panelDirty = true; }, 4000);
   }
 
+  openTrackPanel(furn) {
+    this.mode = 'tracks';
+    this.trackFurn = furn;
+    if (!this.panelOn) this.recenterPanel();
+    this.panelDirty = true;
+  }
+
   openDoorPanel() {
     this.mode = 'door';
     if (!this.panelOn) this.recenterPanel();
@@ -370,7 +377,13 @@ export class XRMode {
     x.fillText(app.world ? app.world.name : '', 36, 50);
     if (this.message) { x.fillStyle = '#4d8dff'; x.font = `500 26px ${font}`; x.textAlign = 'right'; x.fillText(this.message.slice(0, 26), CW - 36, 50); }
 
-    if (this.mode === 'door') {
+    if (this.mode === 'tracks') {
+      const furn = this.trackFurn;
+      x.fillStyle = '#2b2b2e'; x.textAlign = 'center'; x.font = `500 44px ${font}`; x.fillText('グラモフォン', CW / 2, 140);
+      x.fillStyle = '#85858b'; x.font = `400 26px ${font}`; x.fillText('流す曲を選んでください', CW / 2, 190);
+      TRACKS.forEach((tr, k) => B(36 + (k % 2) * 482, 230 + Math.floor(k / 2) * 130, 470, 110, tr.name, () => { this.mode = 'main'; app.music.play(furn, tr.id); }));
+      B(262, 500, 500, 100, '今は流さない', () => { this.mode = 'main'; });
+    } else if (this.mode === 'door') {
       x.fillStyle = '#2b2b2e'; x.textAlign = 'center'; x.font = `500 44px ${font}`; x.fillText('ドア', CW / 2, 150);
       x.fillStyle = '#85858b'; x.font = `400 26px ${font}`;
       x.fillText('バックアップの作成は VR を終えてから、ドアやメニューで行えます', CW / 2, 205);
