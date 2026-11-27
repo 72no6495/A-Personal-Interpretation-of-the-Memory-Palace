@@ -11,6 +11,7 @@ import { PhotoMode } from './photo.js';
 import { XRMode } from './xr.js';
 import { MusicManager, TRACKS } from './music.js';
 import { TitleLogo } from './logo.js';
+import { Monitors } from './monitors.js';
 import { applyVolumes } from './audio.js';
 import { sfx, unlockAudio } from './audio.js';
 import { buildModel, CATALOG_BY_ID } from './furniture.js';
@@ -39,6 +40,7 @@ class App {
     this.photo = new PhotoMode(this);
     this.xr = new XRMode(this);
     this.music = new MusicManager(this);
+    this.monitors = new Monitors(this);
     this.history.onChange = () => this.ui.updateUndo();
 
     this.logo = new TitleLogo(document.getElementById('title-logo'));
@@ -93,6 +95,7 @@ class App {
       this.tools.update();
       this.photo.updateCamera(dt, this.time);
       this.music.update();
+      this.monitors.update(dt);
       if ((this.frameCount = (this.frameCount || 0) + 1) % 12 === 0) this.ui.updateStick();
       this.renderer.render(this.world.scene, this.camera);
       this.photo.afterRender();
@@ -173,6 +176,8 @@ class App {
     fade.style.transition = ''; fade.classList.remove('on');
     sfx.arrive();
     this.music.syncFromWorld();
+    world.stats.visits++;
+    this.lastSaved = isNew ? null : (this.lastSaved || null);
     this.ui.refreshLockHint();
     if (isNew) setTimeout(() => this.ui.toast(isTouchDevice ? '左側で移動、右側で見回し。下のボタンからツールを選べます' : 'クリックで開始。WASDで移動、マウスで見回し。H で操作説明', 4200), 900);
   }
@@ -222,6 +227,7 @@ class App {
         const data = world.serialize(this.player.state());
         await store.savePalace(data, thumb);
         world.dirty = false;
+        this.lastSaved = Date.now();
         const d = new Date();
         this.ui.setSaveStatus(`保存済み ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
         if (manual) { this.ui.toast('保存しました'); sfx.save(); }

@@ -431,6 +431,7 @@ export class XRMode {
           add('回転', () => tools.rotateSelected(1));
           if (o.kind === 'furniture' && w.isOpenable(o)) add(w.anyOpen(o) ? '閉める' : '開ける', () => { const op = w.anyOpen(o); w.setAllOpen(o, !op); (op ? sfx.closeDrawer : sfx.openDrawer).call(sfx); app.markDirty(); });
           if (o.kind === 'furniture' && w.hasLight(o)) add(o.state.light !== false ? '消灯' : '点灯', () => { w.setLight(o, o.state.light === false); app.markDirty(); });
+          if (app.monitors.isMonitor(o)) add('次の画面', () => app.monitors.next(o), 180);
           if (o.kind === 'furniture' && o.type === 'gramophone') {
             const playing = app.music.isPlaying(o) ? o.state.track : null;
             TRACKS.forEach((tr, k) => B(36 + k * 192, cy + 200, 180, 84, tr.name, () => app.music.play(o, tr.id), { on: playing === tr.id }));

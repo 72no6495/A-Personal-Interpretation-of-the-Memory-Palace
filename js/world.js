@@ -26,6 +26,7 @@ export class Palace {
     this.furniture = new Map();
     this.images = new Map();
     this.dirty = false;
+    this.stats = { visits: 0, timeMs: 0, strokes: 0 }; // 訪れた回数・過ごした時間・描いた線
     this._colliders = null;
     this.doorOpen = 0; this.doorTarget = 0;
 
@@ -433,12 +434,13 @@ export class Palace {
     images.sort((a, b) => a.layer - b.layer);
     return {
       version: 1, id: this.id, name: this.name, created: this.created, updated: Date.now(), ppm: this.ppm,
-      player: player || null, surfaces, furniture, images,
+      player: player || null, stats: { ...this.stats, timeMs: Math.round(this.stats.timeMs) }, surfaces, furniture, images,
     };
   }
 
   static async deserialize(renderer, data, ppm, onProgress) {
     const p = new Palace(renderer, { id: data.id, name: data.name, ppm, created: data.created });
+    if (data.stats) Object.assign(p.stats, data.stats);
     const jobs = [];
     for (const [k, v] of Object.entries(data.surfaces || {})) {
       const s = p.surfaces.get(k);

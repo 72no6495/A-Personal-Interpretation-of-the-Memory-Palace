@@ -3,6 +3,7 @@ import { settings, saveSettings, resetSettings, isTouchDevice } from './settings
 import { PEN_COLORS, SHAPES, FONTS, TOOL_ORDER, TOOL_INFO } from './tools.js';
 import { CATALOG, TONES, TONE_KEYS, MOUNT_NAMES, currentMonth } from './furniture.js';
 import { TRACKS } from './music.js';
+import { PAGES as MONITOR_PAGES } from './monitors.js';
 import { sfx } from './audio.js';
 
 const svg = (inner, vb = '0 0 24 24') => `<svg viewBox="${vb}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -589,6 +590,11 @@ export class UI {
         }
         sep();
         const world = this.app.world;
+        if (this.app.monitors.isMonitor(o)) {
+          sep();
+          const cur = o.state.monitorPage || 'auto';
+          group(label('画面'), ...MONITOR_PAGES.map(pg => chip(pg.name, cur === pg.id, () => { this.app.monitors.setPage(o, pg.id); this.updateToolPanel(); })));
+        }
         if (o.kind === 'furniture' && o.type === 'gramophone') {
           sep();
           const playing = this.app.music.isPlaying(o) ? o.state.track : null;
@@ -605,7 +611,8 @@ export class UI {
           }
           if (world.hasLight(o)) {
             const on = o.state.light !== false;
-            group(chip(on ? '消灯' : '点灯', false, () => {
+            const isMon = this.app.monitors.isMonitor(o);
+            group(chip(isMon ? (on ? '電源を切る' : '電源を入れる') : (on ? '消灯' : '点灯'), false, () => {
               world.setLight(o, !on); (on ? sfx.lightOff : sfx.lightOn).call(sfx); this.app.markDirty(); this.updateToolPanel();
             }));
           }

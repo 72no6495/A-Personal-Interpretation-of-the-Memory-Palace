@@ -609,9 +609,11 @@ const BUILDERS = {
     const m = M(t), g = group(box(0.2, 0.012, 0.13, m, 0, 0.006, 0));
     g.add(box(0.035, 0.2, 0.02, m, 0, 0.11, -0.03));
     g.add(box(0.58, 0.36, 0.025, m, 0, 0.36, -0.01));
-    g.add(box(0.55, 0.33, 0.002, M(0x1f2124), 0, 0.36, 0.0035));
+    g.add(screenMesh(0.55, 0.33, 0, 0.36, 0.0035));
     return { group: g, surfaces: [face('screen', 0.55, 0.33, 0, 0.36, 0.0046, { label: '画面', hires: true })] };
   },
+  wallmonitor(t) { return wallMonitor(t, 0.96, 0.54); },
+  wallmonitorL(t) { return wallMonitor(t, 1.68, 0.945); },
   nameplate(t) {
     const m = M(t), g = group(box(0.24, 0.014, 0.07, m, 0, 0.007, 0));
     const plate = new THREE.Group(); plate.position.set(0, 0.014, 0.01); plate.rotation.x = -0.45;
@@ -738,6 +740,23 @@ export function currentMonth(offset = 0, from = null) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// モニターの画面（宮殿の情報を映す。表示は monitors.js が描く）
+function screenMesh(w, h, x, y, z) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: 0x15171a }));
+  m.position.set(x, y, z); m.name = 'screen-display';
+  return m;
+}
+
+function wallMonitor(t, W, H) {
+  const m = M(t), g = group();
+  const bez = 0.018, d = 0.035;
+  g.add(box(W * 0.3, H * 0.4, 0.02, M(DARK), 0, 0, 0.01)); // 壁の金具
+  g.add(box(W + bez * 2, H + bez * 2, d, m, 0, 0, 0.02 + d / 2));
+  g.add(screenMesh(W, H, 0, 0, 0.02 + d + 0.0006));
+  g.add(box(0.05, 0.008, 0.006, M(0x9fd59a, { emissive: 0x6fcf6a, emissiveIntensity: 0.6 }), W / 2 - 0.04, -H / 2 - bez / 2, 0.02 + d + 0.001)); // 電源ランプ
+  return { group: g, surfaces: [face('screen', W, H, 0, 0, 0.02 + d + 0.0012, { label: '画面', hires: true })] };
+}
+
 function frame(t, W, H) {
   const m = M(t), g = group();
   const b = 0.045, d = 0.035;
@@ -778,6 +797,8 @@ export const CATALOG = [
   { id: 'board', name: 'コルクボード', mount: 'wall', tone: 'oak', note: '描ける・写真' },
   { id: 'whiteboard', name: 'ホワイトボード', mount: 'wall', tone: 'gray', note: '描ける・写真' },
   { id: 'wallshelf', name: '壁棚', mount: 'wall', tone: 'oak', note: '小物を置ける' },
+  { id: 'wallmonitor', name: '壁掛けモニター', mount: 'wall', tone: 'black', note: '宮殿の情報を表示' },
+  { id: 'wallmonitorL', name: '大型モニター', mount: 'wall', tone: 'black', note: '宮殿の情報を表示' },
   { id: 'wallcabinet', name: '吊り戸棚', mount: 'wall', tone: 'white', note: '扉が開く・中に入れられる' },
   { id: 'calendar', name: 'カレンダー', mount: 'wall', tone: 'oak', note: '予定を書ける' },
   { id: 'chalkboard', name: '黒板', mount: 'wall', tone: 'oak', note: '描ける・写真' },
@@ -804,7 +825,7 @@ export const CATALOG = [
   { id: 'orb', name: '球のオブジェ', mount: 'small', tone: 'gray' },
   { id: 'crystal', name: '水晶玉', mount: 'small', tone: 'walnut' },
   { id: 'notebook', name: 'ノート', mount: 'small', tone: 'walnut', note: '開閉・ページに書ける' },
-  { id: 'monitor', name: 'モニター', mount: 'small', tone: 'black', note: '画面に描ける・写真' },
+  { id: 'monitor', name: 'モニター', mount: 'small', tone: 'black', note: '宮殿の情報を表示' },
   { id: 'nameplate', name: 'ネームプレート', mount: 'small', tone: 'oak', note: '書ける' },
   { id: 'key', name: '鍵', mount: 'small', tone: 'oak' },
   { id: 'photostand', name: 'フォトスタンド', mount: 'small', tone: 'oak', note: '描ける・写真' },
