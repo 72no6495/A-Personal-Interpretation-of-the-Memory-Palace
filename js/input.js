@@ -323,6 +323,7 @@ export class Input {
 
   // ---------- キーボード ----------
   onKeyDown(e) {
+    if (this.app.xr && this.app.xr.active) return; // VR 中のキーボードは文字入力に使う
     if (!this.enabled) {
       // タイトル画面などでも Esc でダイアログを閉じる
       if (e.code === 'Escape' && this.app.ui.modals.length) this.app.ui.closeTopModal();

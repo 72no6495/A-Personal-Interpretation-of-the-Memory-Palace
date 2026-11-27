@@ -26,7 +26,12 @@ export const DEFAULTS = {
   stickMode: 'float',
   ambient: true,           // 環境音
   ambientVolume: 0.5,      // 環境音の音量
-  musicVolume: 0.6,        // 音楽（グラモフォン）の音量      // 'float'：触った場所に出る / 'fixed'：位置を固定
+  musicVolume: 0.6,        // 音楽（グラモフォン）の音量
+  vrHeight: 0,             // VR：視点の高さの調整（m、-0.5〜+0.4）
+  vrTurn: 'snap30',        // VR：向きの変え方 'snap30' | 'snap45' | 'smooth'
+  vrPanelHand: 'left',     // VR：パレットを持つ手 'left' | 'right'
+  vrPanelFollow: 'hand',   // VR：パレットの位置 'hand'（手につく）| 'view'（視線についてくる）| 'world'（その場に置く）
+  vrPanelSize: 1,          // VR：パレットの大きさ      // 'float'：触った場所に出る / 'fixed'：位置を固定
 };
 
 export const QUALITY_PPM = { low: 112, medium: 160, high: 224, ultra: 320 };
