@@ -23,7 +23,10 @@ export const DEFAULTS = {
   showHints: true,
   pixelRatio: isTouchDevice ? 1.5 : 2,
   autosave: true,
-  stickMode: 'float',      // 'float'：触った場所に出る / 'fixed'：位置を固定
+  stickMode: 'float',
+  ambient: true,           // 環境音
+  ambientVolume: 0.5,      // 環境音の音量
+  musicVolume: 0.6,        // 音楽（グラモフォン）の音量      // 'float'：触った場所に出る / 'fixed'：位置を固定
 };
 
 export const QUALITY_PPM = { low: 112, medium: 160, high: 224, ultra: 320 };

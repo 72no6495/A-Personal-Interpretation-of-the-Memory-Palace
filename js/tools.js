@@ -647,6 +647,7 @@ class HandTool {
   }
 
   togglePart(obj, part) {
+    if (part === 'music') { this.app.music.toggle(obj); this.app.ui.onSelectionChange(obj); return; }
     const r = this.app.world.togglePart(obj, part);
     if (!r) return;
     if (r === 'light') (obj.state.light ? sfx.lightOn : sfx.lightOff).call(sfx);
@@ -875,7 +876,7 @@ export class Tools {
     if (o.kind === 'image') {
       copy = await w.addImage({ isText: o.isText, isSticky: o.isSticky, src: o.src, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, w: o.w, h: o.h, scale: o.scale, draw: o.surface.hasContent ? o.surface.canvas.toDataURL() : null });
     } else {
-      copy = w.addFurniture({ type: o.type, tone: o.tone, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, scale: o.scale, state: o.state });
+      copy = w.addFurniture({ type: o.type, tone: o.tone, host: o.host, x: o.x + dx, y: o.y + dy, rot: o.rot, scale: o.scale, state: { ...o.state, track: null } });
       for (const [n, s] of Object.entries(o.surfaces)) {
         if (s.hasContent && copy.surfaces[n]) { copy.surfaces[n].ctx.drawImage(s.canvas, 0, 0); copy.surfaces[n].markDrawn(); }
       }
