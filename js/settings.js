@@ -31,7 +31,17 @@ export const DEFAULTS = {
   vrTurn: 'snap30',        // VR：向きの変え方 'snap30' | 'snap45' | 'smooth'
   vrPanelHand: 'left',     // VR：パレットを持つ手 'left' | 'right'
   vrPanelFollow: 'hand',   // VR：パレットの位置 'hand'（手につく）| 'view'（視線についてくる）| 'world'（その場に置く）
-  vrPanelSize: 1,          // VR：パレットの大きさ      // 'float'：触った場所に出る / 'fixed'：位置を固定
+  vrPanelSize: 1,          // VR：パレットの大きさ
+  vrKeyboard: false,       // VR：パレットのキーボード（Quest のキーボードが使えないときの代わり）
+  vrQuality: 'standard',   // VR：画質 'low' | 'standard' | 'high' | 'ultra'
+};
+
+// VR の画質：描画の解像度（倍率）と、視野の端を粗く描く度合い（フォービエーション）
+export const VR_QUALITY = {
+  low: { name: '軽量', scale: 0.8, foveation: 1 },
+  standard: { name: '標準', scale: 1, foveation: 0.6 },
+  high: { name: '高精細', scale: 1.25, foveation: 0.3 },
+  ultra: { name: '最高', scale: 1.5, foveation: 0 },
 };
 
 export const QUALITY_PPM = { low: 112, medium: 160, high: 224, ultra: 320 };

@@ -317,6 +317,9 @@ export class UI {
     row('環境音', '低音・風・雨などの音と、置いてある家具やドアから聞こえる音', toggle('ambient'));
     row('環境音の音量', null, range('ambientVolume', 0, 1, 0.05, pct));
     row('音楽の音量', 'グラモフォンの音楽', range('musicVolume', 0, 1, 0.05, pct));
+    section('VR');
+    row('VR の画質', 'VR ヘッドセットで入ったときの画質。次に VR に入ったときに反映されます', seg('vrQuality', [['low', '軽量'], ['standard', '標準'], ['high', '高精細'], ['ultra', '最高']]));
+    row('パレットのキーボード', 'VR で文字を入力するとき、Quest のキーボードが使えない場合に代わりに使います', toggle('vrKeyboard'));
     section('保存');
     row('自動保存', '約1分ごとに自動で保存します', toggle('autosave'));
     const reset = document.createElement('button'); reset.className = 'btn small'; reset.textContent = '初期設定に戻す';
