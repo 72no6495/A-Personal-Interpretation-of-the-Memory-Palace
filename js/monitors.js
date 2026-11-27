@@ -1,6 +1,7 @@
 // モニターの画面：その宮殿の情報や統計を映す
 import * as THREE from './lib/three.module.min.js';
 import { TRACKS } from './music.js';
+import { buses } from './audio.js';
 import { MOUNT_NAMES } from './furniture.js';
 
 export const MONITOR_TYPES = new Set(['monitor', 'wallmonitor', 'wallmonitorL']);
@@ -10,8 +11,10 @@ export const PAGES = [
   { id: 'furniture', name: '家具' },
   { id: 'drawing', name: '描画' },
   { id: 'clock', name: '時計' },
+  { id: 'wave', name: '波形' },
 ];
-const CYCLE = ['overview', 'furniture', 'drawing', 'clock'];
+const CYCLE = ['overview', 'furniture', 'drawing', 'clock', 'wave'];
+const WAVE_FPS = 30;
 const AUTO_SEC = 9;
 const ROOM_LABELS = { floor: '床', ceiling: '天井', wall_n: '正面の壁', wall_s: 'ドアの壁', wall_w: '左の壁', wall_e: '右の壁' };
 const FONT = '"Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif';
@@ -48,8 +51,16 @@ export class Monitors {
     if (!w) return;
     this.t += dt;
     w.stats.timeMs += dt * 1000;
-    if (this.t - this.lastDraw < 1) return;
-    this.drawAll(false);
+    if (this.t - this.lastDraw >= 1) { this.drawAll(false); return; }
+    // 波形のページだけは、なめらかに動くよう頻繁に描き直す
+    if (this.t - (this.lastWave || 0) >= 1 / WAVE_FPS) {
+      this.lastWave = this.t;
+      for (const f of w.furniture.values()) {
+        if (!MONITOR_TYPES.has(f.type) || !f.root.parent || f.state.light === false || this.pageOf(f) !== 'wave') continue;
+        const scr = this.screenFor(f);
+        if (scr) this.draw(scr, f, this.lastStats || this.collect());
+      }
+    }
   }
 
   drawAll(force) {
@@ -64,6 +75,7 @@ export class Monitors {
       const scr = this.screenFor(f);
       if (!scr) continue;
       stats = stats || this.collect();
+      this.lastStats = stats;
       this.draw(scr, f, stats);
     }
     for (const id of [...this.screens.keys()]) if (!live.has(id)) { this.screens.get(id).tex.dispose(); this.screens.delete(id); }
@@ -149,7 +161,7 @@ export class Monitors {
     const page = this.pageOf(f);
     x.textBaseline = 'middle';
     // ヘッダー
-    const title = { overview: '概要', furniture: '家具', drawing: '描画', clock: '時計' }[page];
+    const title = { overview: '概要', furniture: '家具', drawing: '描画', clock: '時計', wave: '波形' }[page];
     text(x, st.name, 4 * u, 6 * u, 3.2 * u, C.text, 500, 'left', 60 * u);
     text(x, title, W - 4 * u, 6 * u, 2.6 * u, C.sub, 400, 'right');
     CYCLE.forEach((p, i) => { x.fillStyle = p === page ? C.accent : C.line; x.beginPath(); x.arc(W - 4 * u - (CYCLE.length - 1 - i) * 2.2 * u, 10 * u, 0.6 * u, 0, Math.PI * 2); x.fill(); });
@@ -158,6 +170,7 @@ export class Monitors {
     if (page === 'overview') this.overview(x, st, u, W, top, bottom);
     else if (page === 'furniture') this.furniturePage(x, st, u, W, top, bottom);
     else if (page === 'drawing') this.drawingPage(x, st, u, W, top, bottom);
+    else if (page === 'wave') this.wavePage(x, st, u, W, top, bottom);
     else this.clockPage(x, st, u, W, H, top, bottom);
     scr.tex.needsUpdate = true;
   }
@@ -218,6 +231,50 @@ export class Monitors {
       text(x, (it.ratio * 100).toFixed(it.ratio < 0.1 ? 1 : 0) + '%', W - 4 * u, y, 2.4 * u, C.text, 500, 'right');
     });
     text(x, `描いた線 ${st.strokes} 本 ・ 家具や画像の上の描き込み ${st.furnDrawn} 面`, 4 * u, bottom - 2.5 * u, 2.1 * u, C.sub, 400, 'left');
+  }
+
+  // 音声波形：上に波形（オシロスコープ）、下に周波数ごとの大きさ
+  wavePage(x, st, u, W, top, bottom) {
+    const an = buses.analyser;
+    const waveH = (bottom - top) * 0.46, specTop = top + waveH + 4 * u, specH = bottom - specTop - 5 * u;
+    x.fillStyle = C.panel; rr(x, 4 * u, top, W - 8 * u, waveH, 1.2 * u); x.fill();
+    x.fillStyle = C.line; x.fillRect(5 * u, top + waveH / 2, W - 10 * u, 0.12 * u);
+    if (!an) {
+      text(x, '音が鳴ると表示されます', W / 2, top + waveH / 2, 2.6 * u, C.sub, 400, 'center');
+      return;
+    }
+    if (!this.tbuf || this.tbuf.length !== an.fftSize) { this.tbuf = new Float32Array(an.fftSize); this.fbuf = new Uint8Array(an.frequencyBinCount); }
+    an.getFloatTimeDomainData(this.tbuf);
+    an.getByteFrequencyData(this.fbuf);
+    // 波形：上向きにゼロを横切る位置から描いて、揺れを止めて見やすくする
+    const b = this.tbuf, n = 1024;
+    let start = 0;
+    for (let i = 1; i < b.length - n; i++) if (b[i - 1] < 0 && b[i] >= 0) { start = i; break; }
+    let peak = 0; for (const v of b) peak = Math.max(peak, Math.abs(v));
+    const gain = Math.min(8, 0.9 / Math.max(peak, 0.02)); // 小さな音でも見えるよう自動で拡大
+    x.strokeStyle = C.accent; x.lineWidth = 0.35 * u; x.lineJoin = 'round'; x.beginPath();
+    for (let i = 0; i < n; i++) {
+      const px = 5 * u + (i / (n - 1)) * (W - 10 * u);
+      const py = top + waveH / 2 - Math.max(-1, Math.min(1, b[start + i] * gain)) * (waveH / 2 - 1.5 * u);
+      i ? x.lineTo(px, py) : x.moveTo(px, py);
+    }
+    x.stroke();
+    // 周波数：対数の間隔で 48 本の棒
+    const bars = 48, sr = an.context.sampleRate, nyq = sr / 2, bins = this.fbuf.length;
+    const fLo = 40, fHi = Math.min(16000, nyq);
+    const bw = (W - 8 * u) / bars;
+    for (let k = 0; k < bars; k++) {
+      const f0 = fLo * Math.pow(fHi / fLo, k / bars), f1 = fLo * Math.pow(fHi / fLo, (k + 1) / bars);
+      const i0 = Math.max(0, Math.floor(f0 / nyq * bins)), i1 = Math.max(i0 + 1, Math.ceil(f1 / nyq * bins));
+      let m = 0; for (let i = i0; i < i1 && i < bins; i++) m = Math.max(m, this.fbuf[i]);
+      const hgt = Math.max(0.4 * u, (m / 255) * specH);
+      x.fillStyle = k < bars * 0.3 ? C.warm : k < bars * 0.7 ? C.accent : C.green;
+      rr(x, 4 * u + k * bw + 0.15 * bw, specTop + specH - hgt, bw * 0.7, hgt, 0.3 * u); x.fill();
+    }
+    const db = peak > 0 ? (20 * Math.log10(peak)).toFixed(0) : '-∞';
+    const what = st.playing ? `♪ ${st.playing}` : '環境音・効果音';
+    text(x, what, 4 * u, bottom - 1.5 * u, 2.1 * u, st.playing ? C.green : C.sub, 400, 'left');
+    text(x, `40Hz ─ 16kHz ・ ピーク ${db} dBFS`, W - 4 * u, bottom - 1.5 * u, 2.1 * u, C.sub, 400, 'right');
   }
 
   clockPage(x, st, u, W, H, top, bottom) {
