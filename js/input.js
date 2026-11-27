@@ -122,6 +122,14 @@ export class Input {
   // ---- マウス ----
   mouseDown(e) {
     if (e.target !== this.el) return;
+    if (this.app.thinking) { // 思考モード：ドアのクリックだけ受け付ける
+      if (this.mode === 'lock') {
+        if (!this.locked) { this.requestLock(); return; }
+        if (e.button === 0) this.app.thinkClick(CENTER);
+      } else if (e.button === 0) this.app.thinkClick(this.ndcFromEvent(e));
+      else if (e.button === 2) { this.rightDrag = true; this.rightMoved = 0; }
+      return;
+    }
     if (this.app.photo.active) {
       if (this.mode === 'lock') {
         if (!this.locked) { this.requestLock(); return; }
@@ -210,7 +218,7 @@ export class Input {
     this.pointers.set(e.pointerId, p);
     try { this.el.setPointerCapture(e.pointerId); } catch { /* 無視 */ }
     const n = this.toolName;
-    const photo = this.app.photo.active;
+    const photo = this.app.photo.active || this.app.thinking;
     const drawTool = !photo && (n === 'pen' || n === 'eraser');
 
     if (drawTool && (this.drawMode || e.pointerType === 'pen')) {
@@ -310,6 +318,7 @@ export class Input {
   }
 
   tap(ndc) {
+    if (this.app.thinking) { this.app.thinkClick(ndc); return; }
     if (this.app.photo.active) return;
     const n = this.toolName;
     if (n === 'hand') this.tool.tap(ndc);
@@ -349,6 +358,11 @@ export class Input {
       else if (e.code === 'KeyC') this.app.photo.cycleCamera();
       else if (e.code === 'KeyF') this.toggleMode();
       else if (e.code === 'KeyH') this.app.ui.toggleHelp();
+      return;
+    }
+    if (this.app.thinking) { // 思考モード：移動のキーとメニューだけ
+      if (e.code === 'Escape' && this.mode === 'cursor') this.app.openPauseMenu();
+      if (e.code === 'KeyF') this.toggleMode();
       return;
     }
     if (e.code === 'KeyP') { this.app.photo.enter(); return; }
@@ -402,7 +416,7 @@ export class Input {
     let ndc = null;
     if (this.touch || this.mode === 'lock') ndc = CENTER;
     else if (this.mouse) ndc = this.mouse;
-    if (ndc && !this.app.photo.active) this.tool.hover(ndc);
+    if (ndc && !this.app.photo.active && !this.app.thinking) this.tool.hover(ndc);
     // ロック中に描きながら移動
     if (this.primary && this.mode === 'lock' && (x || y)) this.tool.move(CENTER, {});
   }
