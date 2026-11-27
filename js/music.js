@@ -153,7 +153,9 @@ const I = {
 // ============================================================
 // 各曲は bpm と 1拍あたりの刻み数を持ち、step(i, t, d) で i 番目の刻みを予約する
 class Track {
-  constructor(player) { this.p = player; this.c = player.c; }
+  constructor(player) { this.attach(player); }
+  // 書き出し先（区切りごとの音声コンテキスト）を付け替える
+  attach(player) { this.p = player; this.c = player.c; }
   get out() { return this.p.dry; }
   get wet() { return this.p.wet; }
 }
@@ -256,7 +258,12 @@ class PsyTechno extends Track {
   constructor(p) {
     super(p);
     this.bpm = 144; this.spb = 4;
-    const c = this.c;
+    this.build();
+    this.newPattern();
+  }
+  attach(p) { super.attach(p); if (this.bpm) this.build(); }
+  build() {
+    const c = this.c, p = this.p;
     // 歪み
     this.drive = c.createWaveShaper();
     const curve = new Float32Array(1024);
@@ -269,7 +276,6 @@ class PsyTechno extends Track {
     const df = c.createBiquadFilter(); df.type = 'bandpass'; df.frequency.value = 1800;
     this.delay.connect(df); df.connect(fb); fb.connect(this.delay); df.connect(p.wet);
     this.arpIn = c.createGain(); this.arpIn.connect(this.delay); this.arpIn.connect(p.dry);
-    this.newPattern();
   }
   newPattern() {
     const scale = [33, 34, 36, 38, 40, 41, 43, 45]; // A フリジアン
@@ -339,39 +345,87 @@ export const TRACKS = [
 
 // ============================================================
 // 1台のグラモフォンの再生
+//   音をひとつずつリアルタイムで合成すると、スマホでは処理が追いつかずにプツプツ途切れる。
+//   そこで曲を数秒ずつ裏で音声データに書き出し（OfflineAudioContext）、それを順につないで流す。
+//   区切りをまたぐ音の余韻は、次の区切りと重ねて鳴らすので切れ目は聞こえない。
 // ============================================================
+const CHUNK = { ambient: 16 };   // 1回に書き出す長さ（秒）。指定がなければ 8 秒
+const TAIL = { ambient: 15, psytechno: 11 }; // 区切りの後ろに残す余韻（秒）。指定がなければ 8 秒
+const LEAD = 6;                  // これだけ先まで書き出しておく（秒）
+
 class Player {
   constructor(c, trackId) {
     this.c = c;
-    // 出力：dry/wet → 音量 → 立体音響（家具の位置から聞こえる） → 音楽の出力
+    this.trackId = trackId;
+    // 出力：書き出した音 → 音量 → 立体音響（家具の位置から聞こえる） → 音楽の出力
     this.panner = c.createPanner();
     this.panner.panningModel = 'HRTF';
     this.panner.distanceModel = 'inverse';
     this.panner.refDistance = 1.4; this.panner.rolloffFactor = 0.9; this.panner.maxDistance = 30;
     this.panner.connect(buses.music);
     // 曲ごとの音量差をならす
-    const level = TRACK_LEVEL[trackId] || 1;
+    this.level = TRACK_LEVEL[trackId] || 1;
     this.out = c.createGain(); this.out.gain.value = 0.0001; this.out.connect(this.panner);
-    this.out.gain.setTargetAtTime(level, c.currentTime, 0.4);
-    // 蓄音機らしく少しだけ帯域を絞る
-    const tone = c.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = trackId === 'psytechno' ? 16000 : 9000; tone.connect(this.out);
-    this.dry = c.createGain(); this.dry.connect(tone);
-    const rev = c.createConvolver(); rev.buffer = buses.reverb.buffer;
-    this.wet = c.createGain(); this.wet.connect(this.dry); this.wet.connect(rev);
-    const rg = c.createGain(); rg.gain.value = 0.35; rev.connect(rg); rg.connect(tone);
+    this.started = false;
     const T = TRACKS.find(x => x.id === trackId) || TRACKS[0];
-    this.track = new T.cls(this);
+    this.chunk = CHUNK[trackId] || 8;
+    this.tail = TAIL[trackId] || 8;
+    this.track = new T.cls(this.makeGraph(1));
+    this.d = 60 / this.track.bpm / this.track.spb;
     this.step = 0;
-    this.next = c.currentTime + 0.15;
-    this.timer = setInterval(() => this.schedule(), 25);
+    this.next = c.currentTime + 0.25;   // 次に予約する刻みの時刻（実際の時計で）
+    this.sources = [];
+    this.rendering = false;
+    this.stopped = false;
+    // 最初は短く書き出して、すぐ鳴り始めるようにする
+    this.renderNext(Math.min(3, this.chunk));
+    this.timer = setInterval(() => this.pump(), 200);
   }
-  schedule() {
-    const c = this.c, d = 60 / this.track.bpm / this.track.spb;
-    // 先読みを長めにとって、重い処理（保存など）があっても途切れにくくする
-    while (this.next < c.currentTime + 0.35) {
-      try { this.track.step(this.step, this.next, d); } catch (e) { console.warn(e); }
-      this.step++; this.next += d;
+  // 書き出し用の音声コンテキストと、曲の出力（dry / wet ＋残響＋蓄音機らしい帯域）を作る
+  makeGraph(seconds) {
+    const sr = this.c.sampleRate;
+    const oc = new OfflineAudioContext(1, Math.max(1, Math.ceil(seconds * sr)), sr);
+    const tone = oc.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = this.trackId === 'psytechno' ? 16000 : 9000;
+    tone.connect(oc.destination);
+    const dry = oc.createGain(); dry.connect(tone);
+    const rev = oc.createConvolver(); rev.buffer = buses.reverb.buffer;
+    const wet = oc.createGain(); wet.connect(dry); wet.connect(rev);
+    const rg = oc.createGain(); rg.gain.value = 0.35; rev.connect(rg); rg.connect(tone);
+    return { c: oc, dry, wet };
+  }
+  pump() {
+    if (this.stopped || this.rendering) return;
+    if (this.next < this.c.currentTime + LEAD) this.renderNext(this.chunk);
+    // 鳴り終わった音声データを片付ける
+    const now = this.c.currentTime;
+    this.sources = this.sources.filter(s => s.end > now);
+  }
+  async renderNext(len) {
+    this.rendering = true;
+    const start0 = this.next, end = start0 + len;
+    const g = this.makeGraph(len + this.tail);
+    this.track.attach(g);
+    while (this.next < end) {
+      try { this.track.step(this.step, this.next - start0, this.d); } catch (e) { console.warn(e); }
+      this.step++; this.next += this.d;
     }
+    let buf;
+    try { buf = await g.c.startRendering(); } catch (e) { console.warn(e); this.rendering = false; return; }
+    this.rendering = false;
+    if (this.stopped) return;
+    const c = this.c, now = c.currentTime;
+    let start = start0;
+    // 最初の区切り：書き出しが遅れたら、曲の頭から鳴るように全体を後ろへずらす
+    if (!this.started && start < now + 0.05) { const shift = now + 0.05 - start; start += shift; this.next += shift; }
+    const src = c.createBufferSource(); src.buffer = buf; src.connect(this.out);
+    // 書き出しが間に合わなかったときは、ずれないように途中から鳴らす
+    if (start >= now) src.start(start);
+    else if (now - start < buf.duration) src.start(now, now - start);
+    else { this.pump(); return; }
+    this.sources.push({ src, end: start + buf.duration });
+    if (!this.started) { this.started = true; this.out.gain.setTargetAtTime(this.level, Math.max(start, now), 0.4); }
+    // まだ先読みが足りなければ続けて書き出す
+    this.pump();
   }
   setPosition(p) {
     const t = this.c.currentTime;
@@ -380,11 +434,16 @@ class Player {
     this.panner.positionZ.setTargetAtTime(p.z, t, 0.05);
   }
   stop() {
+    this.stopped = true;
     clearInterval(this.timer);
     const t = this.c.currentTime;
     this.out.gain.cancelScheduledValues(t);
     this.out.gain.setTargetAtTime(0.0001, t, 0.15);
-    setTimeout(() => { try { this.panner.disconnect(); } catch { /* 無視 */ } }, 1500);
+    const srcs = this.sources;
+    setTimeout(() => {
+      for (const s of srcs) { try { s.src.stop(); s.src.disconnect(); } catch { /* 無視 */ } }
+      try { this.panner.disconnect(); } catch { /* 無視 */ }
+    }, 1500);
   }
 }
 
