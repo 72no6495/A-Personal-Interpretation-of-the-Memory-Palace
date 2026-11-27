@@ -577,6 +577,8 @@ const BUILDERS = {
     hat.add(cyl(0.025, 0.025, 0.003, black, 0, 0.0015, 0, 28));
     hat.add(cyl(0.0145, 0.0155, 0.026, black, 0, 0.016, 0, 24));
     hat.add(cyl(0.0157, 0.0158, 0.005, M(0xb3302a), 0, 0.0055, 0, 24));
+    // セットのコップ：深くお辞儀したとき、くちばしの先がちょうどコップの中に入る位置
+    const cup = waterGlass(); cup.position.set(0, 0, 0.108); g.add(cup);
     g.userData.birdBody = body;
     const off = Math.random() * 9;
     const P = 9;
@@ -594,15 +596,7 @@ const BUILDERS = {
       },
     };
   },
-  glass(t) {
-    const g = group();
-    const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.03, 0.11, 32, 1, true), glassMaterial());
-    outer.position.y = 0.055; outer.renderOrder = 2; g.add(outer);
-    const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.008, 32), glassMaterial()); bottom.position.y = 0.004; bottom.renderOrder = 2; g.add(bottom);
-    const water = new THREE.Mesh(new THREE.CylinderGeometry(0.0335, 0.0295, 0.072, 32), M(0x9fcfee, { transparent: true, opacity: 0.45, depthWrite: false }));
-    water.position.y = 0.044; water.renderOrder = 1; g.add(water);
-    return { group: g, surfaces: [] };
-  },
+  glass() { return { group: group(waterGlass()), surfaces: [] }; },
 
   // ---------- 機能のある小物・壁の物 ----------
   monitor(t) {
@@ -740,6 +734,17 @@ export function currentMonth(offset = 0, from = null) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// 水の入ったガラスのコップ
+function waterGlass() {
+  const g = new THREE.Group();
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.03, 0.11, 32, 1, true), glassMaterial());
+  outer.position.y = 0.055; outer.renderOrder = 2; g.add(outer);
+  const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.008, 32), glassMaterial()); bottom.position.y = 0.004; bottom.renderOrder = 2; g.add(bottom);
+  const water = new THREE.Mesh(new THREE.CylinderGeometry(0.0335, 0.0295, 0.072, 32), M(0x9fcfee, { transparent: true, opacity: 0.45, depthWrite: false }));
+  water.position.y = 0.044; water.renderOrder = 1; g.add(water);
+  return g;
+}
+
 // モニターの画面（宮殿の情報を映す。表示は monitors.js が描く）
 function screenMesh(w, h, x, y, z) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: 0x15171a }));
@@ -814,8 +819,9 @@ export const CATALOG = [
   { id: 'sign', name: '吊り看板', mount: 'ceiling', tone: 'oak', note: '両面に描ける' },
 
   { id: 'gramophone', name: 'グラモフォン', mount: 'small', tone: 'walnut', note: '音楽を再生できる' },
-  { id: 'drinkingbird', name: '水飲み鳥', mount: 'small', tone: 'oak', note: 'ずっと動いている' },
-  { id: 'glass', name: 'コップ', mount: 'small', tone: 'white', note: '水入り' },
+  { id: 'drinkingbird', name: '水飲み鳥', mount: 'small', tone: 'oak', note: 'コップとセット・ずっと動いている' },
+  // 単体のコップは以前の宮殿を開くためだけに残す（カタログには出さない）
+  { id: 'glass', name: 'コップ', mount: 'small', tone: 'white', hidden: true },
   { id: 'vase', name: '花瓶', mount: 'small', tone: 'white' },
   { id: 'cup', name: 'カップ', mount: 'small', tone: 'white' },
   { id: 'books', name: '本', mount: 'small', tone: 'walnut' },

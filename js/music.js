@@ -39,6 +39,7 @@ function osc(c, type, f, t, stop, out) {
 
 function noiseSrc(c, t, dur, out) {
   const s = c.createBufferSource(); s.buffer = noise(c);
+  s.loop = true; // ノイズは2秒分しかないので、長い音（風・ライザーなど）のために繰り返す
   s.connect(out); s.start(t, Math.random() * 1.5); s.stop(t + dur);
   return s;
 }

@@ -410,7 +410,7 @@ export class XRMode {
         if (cur === 'pen') B(786, ry, 202, 90, st.smoothing > 0.2 ? '補正 あり' : '補正 なし', () => { st.smoothing = st.smoothing > 0.2 ? 0 : 0.35; });
       } else if (cur === 'furniture') {
         ['floor', 'wall', 'ceiling', 'small'].forEach((m, i) => B(36 + i * 160, cy, 148, 70, MOUNT_NAMES[m], () => { this.catMount = m; this.catIndex = 0; this.selectCatalog(); }, { on: this.catMount === m }));
-        const list = CATALOG.filter(c => c.mount === this.catMount);
+        const list = CATALOG.filter(c => c.mount === this.catMount && !c.hidden);
         const item = list[this.catIndex % list.length];
         B(36, cy + 90, 110, 170, '‹', () => { this.catIndex = (this.catIndex - 1 + list.length) % list.length; this.selectCatalog(); }, { big: true });
         B(632, cy + 90, 110, 170, '›', () => { this.catIndex = (this.catIndex + 1) % list.length; this.selectCatalog(); }, { big: true });
@@ -479,7 +479,7 @@ export class XRMode {
   }
 
   selectCatalog() {
-    const list = CATALOG.filter(c => c.mount === this.catMount);
+    const list = CATALOG.filter(c => c.mount === this.catMount && !c.hidden);
     const item = list[this.catIndex % list.length];
     const st = this.app.tools.state;
     st.furnitureType = item.id; st.furnitureTone = null;
