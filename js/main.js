@@ -183,6 +183,7 @@ class App {
   }
 
   leaveGame() {
+    this.exitThink(true);
     this.music.stopAll();
     this.photo.exit();
     this.xr.exit();
@@ -358,7 +359,41 @@ class App {
     }, { className: 'center' });
   }
 
+  // ---------- 思考モード：画面のボタンを消して、歩き回りながら考える ----------
+  enterThink() {
+    if (this.thinking || !this.inGame || this.xr.active || this.photo.active) return;
+    const t = this.tools;
+    t.active.cancel(); t.setSelected(null); t.setHover(null);
+    for (const k of ['pen', 'eraser']) t.tools[k].cursor.visible = false;
+    for (const k of ['furniture', 'image']) if (t.tools[k].ghost) t.tools[k].ghost.visible = false; // 置く前の見本も隠す
+    this.thinking = true;
+    this.thinkPrevDraw = this.input.drawMode;
+    if (this.input.drawMode) this.ui.setDrawMode(false);
+    this.ui.setDoorHint(false);
+    document.body.classList.add('think');
+    if (!isTouchDevice && this.input.mode === 'lock' && !this.input.locked) this.input.requestLock();
+    sfx.tool();
+    this.ui.toast(isTouchDevice ? 'ドアをタップすると思考モードを解除できます' : 'ドアをクリックすると思考モードを解除できます', 4500);
+  }
+
+  exitThink(quiet = false) {
+    if (!this.thinking) return;
+    this.thinking = false;
+    document.body.classList.remove('think');
+    const cur = this.tools.current;
+    if (isTouchDevice && (cur === 'pen' || cur === 'eraser')) this.ui.setDrawMode(this.thinkPrevDraw);
+    this.ui.onToolChange(cur);
+    if (!quiet) { sfx.open(); this.ui.toast('通常モードに戻りました', 1600); }
+  }
+
+  // 思考モード中のクリック・タップ：ドアなら通常モードへ
+  thinkClick(ndc) {
+    const t = this.pickAt(ndc);
+    if (t && t.target.type === 'door') this.exitThink();
+  }
+
   openDoorMenu() {
+    if (this.thinking) { this.exitThink(); return; }
     if (this.xr.active) { this.xr.openDoorPanel(); return; }
     if (this.ui.modalOpen || this.exiting) return;
     sfx.open();
@@ -377,6 +412,7 @@ class App {
   }
 
   async exitThroughDoor() {
+    this.exitThink(true);
     this.exiting = true;
     this.photo.exit();
     this.input.enable(false);
