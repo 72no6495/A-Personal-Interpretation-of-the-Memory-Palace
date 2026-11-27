@@ -664,7 +664,7 @@ export class UI {
       }
     }
     const grid = document.createElement('div'); grid.className = 'cat-grid';
-    for (const c of CATALOG.filter(c => c.mount === this.catalogMount)) {
+    for (const c of CATALOG.filter(c => c.mount === this.catalogMount && !c.hidden)) {
       const b = document.createElement('button');
       b.className = 'cat-item' + (st.furnitureType === c.id ? ' on' : '');
       const img = document.createElement('img'); img.alt = '';
