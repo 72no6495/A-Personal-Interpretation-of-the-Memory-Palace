@@ -1,7 +1,7 @@
 {
   "name": "A Personal Interpretation of the Memory Palace",
   "short_name": "Memory Palace",
-  "description": "記憶の宮殿:独自解釈 — 真っ白な部屋に描き、貼り、置いて記憶する3Dメモアプリ",
+  "description": "記憶の宮殿の独自解釈 — 真っ白な部屋に描き、貼り、置いて記憶する3Dメモアプリ",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",
