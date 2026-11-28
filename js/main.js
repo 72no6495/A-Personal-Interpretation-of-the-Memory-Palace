@@ -10,6 +10,7 @@ import { UI, toggleFullscreen } from './ui.js';
 import { PhotoMode } from './photo.js';
 import { XRMode } from './xr.js';
 import { MusicManager, TRACKS } from './music.js';
+import { NotesUI } from './notes.js';
 import { TitleLogo } from './logo.js';
 import { Monitors } from './monitors.js';
 import { applyVolumes } from './audio.js';
@@ -40,6 +41,7 @@ class App {
     this.photo = new PhotoMode(this);
     this.xr = new XRMode(this);
     this.music = new MusicManager(this);
+    this.notes = new NotesUI(this);
     this.monitors = new Monitors(this);
     this.history.onChange = () => this.ui.updateUndo();
 
@@ -204,14 +206,23 @@ class App {
       const hide = [this.tools.selHelper, this.tools.hovHelper, this.tools.tools.pen.cursor, this.tools.tools.eraser.cursor];
       const vis = hide.map(o => o.visible);
       hide.forEach(o => { o.visible = false; });
-      this.renderer.render(this.world.scene, this.camera);
-      hide.forEach((o, i) => { o.visible = vis[i]; });
+      // いつも同じ景色：ドアの前から、部屋全体を見わたす
       const src = this.renderer.domElement;
-      const c = document.createElement('canvas'); c.width = 384; c.height = 216;
       const sw = src.width, sh = src.height;
       const ar = 384 / 216;
       let w = sw, h = sw / ar;
       if (h > sh) { h = sh; w = sh * ar; }
+      if (!this.thumbCam) this.thumbCam = new THREE.PerspectiveCamera(60, 1, 0.05, 60);
+      const tc = this.thumbCam;
+      tc.aspect = sw / sh;
+      // 16:9 に切り抜いたときの縦の画角が 62° になるように
+      tc.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(31)) * sh / h));
+      tc.position.set(0, 1.7, ROOM.D / 2 - 0.15);
+      tc.lookAt(0, 1.05, -ROOM.D / 2);
+      tc.updateProjectionMatrix();
+      this.renderer.render(this.world.scene, tc);
+      hide.forEach((o, i) => { o.visible = vis[i]; });
+      const c = document.createElement('canvas'); c.width = 384; c.height = 216;
       c.getContext('2d').drawImage(src, (sw - w) / 2, (sh - h) / 2, w, h, 0, 0, 384, 216);
       return c.toDataURL('image/jpeg', 0.75);
     } catch { return null; }

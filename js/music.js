@@ -565,9 +565,9 @@ export class MusicManager {
 //   部屋全体：低音・重低音・風
 //   置いてある家具から：木の家具のきしみ・時計の音・点いているライトの音
 // ============================================================
-const WOODEN = new Set(['chair', 'stool', 'sofa', 'bed', 'bookshelf', 'cabinet', 'tansu', 'nightstand', 'wardrobe', 'desk', 'table', 'lowtable', 'wallshelf', 'wallcabinet', 'pedestal', 'storagebox', 'standboard']);
+const WOODEN = new Set(['chair', 'stool', 'sofa', 'bed', 'bookshelf', 'cabinet', 'tansu', 'nightstand', 'wardrobe', 'desk', 'table', 'lowtable', 'wallshelf', 'wallcabinet', 'pedestal', 'storagebox', 'standboard', 'notecase', 'notecaseW']);
 const CLOCKS = new Set(['clock', 'clockS']);
-const PAPER = new Set(['bookshelf', 'books', 'notebook']);
+const PAPER = new Set(['bookshelf', 'books', 'notebook', 'diary', 'techo', 'notecase', 'notecaseW', 'notecaseS']);
 const PLANTS = new Set(['plant', 'succulent', 'vase']);
 
 class AmbientEngine {

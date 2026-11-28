@@ -11,6 +11,7 @@ import { disableRaycast } from './world.js';
 import { PEN_COLORS } from './tools.js';
 import { CATALOG, MOUNT_NAMES } from './furniture.js';
 import { TRACKS } from './music.js';
+import { drawPage, pageCount, isNoteType, NOTE_TONES, CASE_CAPACITY } from './notes.js';
 
 const VR_TOOLS = ['hand', 'pen', 'eraser', 'text', 'image', 'furniture'];
 const TOOL_NAMES = { hand: '手', pen: 'ペン', eraser: '消しゴム', text: '文字', image: '画像', furniture: '家具' };
@@ -465,7 +466,7 @@ export class XRMode {
     this.panelDirty = true;
     if (cb && v.trim()) cb(v);
   }
-  cancelText() { this.textCb = null; this.mode = 'main'; this.panelDirty = true; }
+  cancelText() { const o = this.textOpts || {}; this.textCb = null; this.mode = 'main'; this.panelDirty = true; if (o.onCancel) o.onCancel(); }
 
   // 宮殿の名前を変える
   renamePalace() {
@@ -535,6 +536,92 @@ export class XRMode {
     if (left <= 0) m.visible = false;
   }
 
+  // ---------- ノート（パレットで読む・編集する） ----------
+  openNote(ref, page = null) {
+    if (this.thinking) this.exitThink(true);
+    const n = this.app.notes.resolve(ref);
+    if (!n) return;
+    this.mode = 'note';
+    this.noteRef = ref;
+    this.notePage = page != null ? page : Math.max(0, n.state.page >= 0 ? n.state.page : 0);
+    if (!this.panelOn) this.recenterPanel();
+    this.panelDirty = true;
+    sfx.open();
+  }
+  openShelf(shelf) {
+    if (this.thinking) this.exitThink(true);
+    this.mode = 'shelf'; this.shelfFurn = shelf; this.shelfPage = 0;
+    if (!this.panelOn) this.recenterPanel();
+    this.panelDirty = true;
+    sfx.open();
+  }
+  openShelfPick(furn, list) {
+    this.mode = 'shelfpick'; this.pickFurn = furn; this.pickList = list;
+    if (!this.panelOn) this.recenterPanel();
+    this.panelDirty = true;
+  }
+
+  drawNote(x, B, font) {
+    const N = this.app.notes, ref = this.noteRef, n = N.resolve(ref);
+    if (!n) { this.mode = 'main'; return; }
+    const text = n.state.text || '', total = pageCount(text);
+    this.notePage = Math.max(0, Math.min(total - 1, this.notePage));
+    const idx = this.notePage;
+    // ページ
+    if (!this.pageCv) { this.pageCv = document.createElement('canvas'); this.pageCv.width = 600; this.pageCv.height = 848; }
+    drawPage(this.pageCv.getContext('2d'), text, idx, n.type);
+    x.save(); x.shadowColor = 'rgba(0,0,0,0.15)'; x.shadowBlur = 16; x.drawImage(this.pageCv, 36, 80, 340, 481); x.restore();
+    // 見出しとページ数
+    x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `500 34px ${font}`;
+    const title = n.state.title || '（見出しなし）';
+    x.fillText(title.length > 15 ? title.slice(0, 14) + '…' : title, 400, 112);
+    x.fillStyle = '#85858b'; x.font = `400 24px ${font}`;
+    x.fillText(`${idx + 1} / ${total} ページ` + (ref.shelf ? '・本棚の中' : ''), 400, 152);
+    B(400, 180, 284, 90, '‹ 前のページ', () => { this.notePage = Math.max(0, idx - 1); }, { disabled: idx <= 0 });
+    B(704, 180, 284, 90, '次のページ ›', () => { this.notePage = Math.min(total - 1, idx + 1); }, { disabled: idx >= total - 1 });
+    if (ref.furn) {
+      const spread = idx - (idx % 2), openHere = n.state.page === spread;
+      B(400, 290, 588, 84, openHere ? '閉じて置く' : 'このページを開いて置く', () => { N.setState(ref.furn, { page: openHere ? -1 : spread }); this.notify(openHere ? '閉じて置きました' : `${spread + 1}〜${spread + 2}ページを開いて置きました`); });
+      if (N.shelves().length) B(400, 386, 588, 84, '本棚にしまう', () => { this.mode = 'main'; N.chooseShelf(ref.furn); });
+    } else {
+      B(400, 290, 588, 84, '取り出して置く', () => { this.mode = 'main'; N.takeOut(ref.shelf, ref.noteId); this.notify('置きたい場所をトリガーで選んでください'); }, { primary: true });
+    }
+    const save = patch => { if (ref.furn) N.setState(ref.furn, patch); else N.setStored(ref.shelf, ref.noteId, patch); };
+    const back = () => this.openNote(ref, this.notePage);
+    B(400, 482, 284, 84, '見出しを変える', () => this.openText(t => { save({ title: t.trim().slice(0, 30) }); back(); }, { initial: n.state.title || '', oneLine: true, max: 30, title: 'ノートの見出し', okLabel: '決定', onCancel: back }), { small: true });
+    B(704, 482, 284, 84, '編集', () => this.openText(t => { save({ text: t }); this.notePage = pageCount(t) - 1; back(); }, { initial: text, title: 'ノートの本文（最後に書き足せます）', okLabel: '保存', onCancel: back }), { primary: true });
+    B(36, 590, 952, 84, '閉じる', () => { this.mode = 'main'; });
+  }
+
+  drawShelf(x, B, font) {
+    const N = this.app.notes, shelf = this.shelfFurn;
+    if (!shelf || !this.app.world.furniture.has(shelf.id)) { this.mode = 'main'; return; }
+    const notes = shelf.state.notes || [];
+    x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `500 34px ${font}`; x.fillText(N.shelfName(shelf), 36, 118);
+    if (!notes.length) { x.fillStyle = '#85858b'; x.font = `400 26px ${font}`; x.fillText('まだノートがありません。ノートを選んで「本棚にしまう」でしまえます', 36, 200); }
+    const per = 12, pages = Math.max(1, Math.ceil(notes.length / per));
+    this.shelfPage = Math.min(this.shelfPage, pages - 1);
+    notes.slice(this.shelfPage * per, this.shelfPage * per + per).forEach((n, k) => {
+      const t = (n.state && n.state.title) || '（見出しなし）';
+      const col = k % 3, row = Math.floor(k / 3);
+      const tone = NOTE_TONES[n.tone];
+      B(36 + col * 320, 150 + row * 100, 308, 88, t.length > 9 ? t.slice(0, 8) + '…' : t, () => this.openNote({ shelf, noteId: n.id }), { swatch: tone ? '#' + tone.color.toString(16).padStart(6, '0') : null });
+    });
+    if (pages > 1) {
+      B(36, 560, 200, 76, '‹', () => { this.shelfPage = Math.max(0, this.shelfPage - 1); }, { disabled: this.shelfPage <= 0 });
+      B(788, 560, 200, 76, '›', () => { this.shelfPage = Math.min(pages - 1, this.shelfPage + 1); }, { disabled: this.shelfPage >= pages - 1 });
+      x.fillStyle = '#85858b'; x.textAlign = 'center'; x.font = `400 24px ${font}`; x.fillText(`${this.shelfPage + 1} / ${pages}`, CW / 2, 600);
+    }
+    B(36, 650, 952, 84, '閉じる', () => { this.mode = 'main'; }, { primary: true });
+  }
+
+  drawShelfPick(x, B, font) {
+    const N = this.app.notes;
+    x.fillStyle = '#2b2b2e'; x.textAlign = 'left'; x.font = `500 34px ${font}`; x.fillText('どの本棚にしまいますか（近い順）', 36, 118);
+    (this.pickList || []).slice(0, 5).forEach((s, i) => B(36, 150 + i * 96, 952, 84, N.shelfName(s), () => { this.mode = 'main'; N.store(this.pickFurn, s); }, { primary: i === 0 }));
+    B(36, 650, 952, 84, 'やめる', () => { this.mode = 'main'; });
+  }
+
   openTrackPanel(furn) {
     this.mode = 'tracks';
     this.trackFurn = furn;
@@ -568,6 +655,12 @@ export class XRMode {
       this.drawTextMode(x, B, font);
     } else if (this.mode === 'settings') {
       this.drawSettings(x, B, font);
+    } else if (this.mode === 'note') {
+      this.drawNote(x, B, font);
+    } else if (this.mode === 'shelf') {
+      this.drawShelf(x, B, font);
+    } else if (this.mode === 'shelfpick') {
+      this.drawShelfPick(x, B, font);
     } else if (this.mode === 'tracks') {
       const furn = this.trackFurn;
       x.fillStyle = '#2b2b2e'; x.textAlign = 'center'; x.font = `500 44px ${font}`; x.fillText('グラモフォン', CW / 2, 140);
@@ -698,6 +791,7 @@ export class XRMode {
         x.lineWidth = 3; x.strokeStyle = hover ? '#4d8dff' : '#e2e2e6'; x.stroke();
         x.fillStyle = b.on || b.primary ? '#ffffff' : b.disabled ? '#c4c4c8' : '#2b2b2e';
         x.textAlign = 'center'; x.font = `500 ${b.big ? 64 : b.key ? 34 : b.small ? 24 : 30}px ${font}`;
+        if (b.swatch) { rr(x, b.x + 10, b.y + 10, 16, b.h - 20, 6); x.fillStyle = b.swatch; x.fill(); x.fillStyle = b.on || b.primary ? '#ffffff' : b.disabled ? '#c4c4c8' : '#2b2b2e'; }
         const ls = String(b.label).split('\n'), lh = b.big ? 64 : b.key ? 34 : b.small ? 28 : 34;
         ls.forEach((l, i) => x.fillText(l, b.x + b.w / 2, b.y + b.h / 2 + 1 + (i - (ls.length - 1) / 2) * lh));
       }
@@ -853,7 +947,7 @@ export class XRMode {
     const list = CATALOG.filter(c => c.mount === this.catMount && !c.hidden);
     const item = list[this.catIndex % list.length];
     const st = this.app.tools.state;
-    st.furnitureType = item.id; st.furnitureTone = null;
+    st.furnitureType = item.id; st.furnitureTone = null; st.furnitureState = null; st.fromShelf = null;
     this.app.tools.tools.furniture.rotOffset = 0;
   }
 

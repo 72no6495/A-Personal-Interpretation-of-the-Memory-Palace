@@ -1,7 +1,8 @@
 // 画面・HUD・パネル・モーダル
 import { settings, saveSettings, resetSettings, isTouchDevice } from './settings.js';
 import { PEN_COLORS, SHAPES, FONTS, TOOL_ORDER, TOOL_INFO } from './tools.js';
-import { CATALOG, TONES, TONE_KEYS, MOUNT_NAMES, currentMonth } from './furniture.js';
+import { CATALOG, TONES, TONE_KEYS, MOUNT_NAMES, currentMonth, tonesFor } from './furniture.js';
+import { isNoteType } from './notes.js';
 import { TRACKS } from './music.js';
 import { PAGES as MONITOR_PAGES } from './monitors.js';
 import { sfx } from './audio.js';
@@ -591,7 +592,7 @@ export class UI {
         if (o.kind === 'furniture') {
           sep();
           const g = group(label('色'));
-          for (const k of TONE_KEYS) {
+          for (const k of tonesFor(o.def)) {
             const b = el('button', 'tone' + (o.tone === k ? ' on' : ''));
             b.style.background = '#' + TONES[k].color.toString(16).padStart(6, '0'); b.title = TONES[k].name;
             b.onclick = () => tools.setToneSelected(k);
@@ -600,6 +601,13 @@ export class UI {
         }
         sep();
         const world = this.app.world;
+        // ノートと本棚
+        if (this.app.notes.isNoteThing(o)) {
+          const N = this.app.notes;
+          if (isNoteType(o.type)) group(chip('読む', false, () => N.openReader({ furn: o })), chip('編集', false, () => N.openEditor({ furn: o })), chip('本棚にしまう', false, () => N.chooseShelf(o)));
+          else group(chip('中のノート', false, () => N.openShelf(o)));
+          sep();
+        }
         if (this.app.monitors.isMonitor(o)) {
           sep();
           const cur = o.state.monitorPage || 'auto';
@@ -654,7 +662,8 @@ export class UI {
     }
     const sepEl = document.createElement('div'); sepEl.className = 'tp-sep'; tabs.appendChild(sepEl);
     const toneLabel = document.createElement('span'); toneLabel.className = 'tp-label'; toneLabel.textContent = '色'; tabs.appendChild(toneLabel);
-    for (const k of TONE_KEYS) {
+    const curDef = st.furnitureType ? CATALOG.find(c => c.id === st.furnitureType) : null;
+    for (const k of tonesFor(curDef)) {
       const b = document.createElement('button');
       const cur = st.furnitureTone || (st.furnitureType ? CATALOG.find(c => c.id === st.furnitureType).tone : null);
       b.className = 'tone' + (cur === k ? ' on' : '');
@@ -687,6 +696,7 @@ export class UI {
         sfx.click();
         if (st.furnitureType === c.id) { st.furnitureType = null; }
         else { st.furnitureType = c.id; st.furnitureTone = null; ft.rotOffset = 0; }
+        st.furnitureState = null; st.fromShelf = null;
         this.updateToolPanel(); this.updateHint();
       };
       grid.appendChild(b);

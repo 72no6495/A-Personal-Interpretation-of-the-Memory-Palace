@@ -4,6 +4,7 @@
 //   wall:  Y が上、Z が壁から手前、原点は壁との接点
 //   ceiling: 原点は天井との接点、物体は -Y 方向へ下がる
 import * as THREE from './lib/three.module.min.js';
+import { NOTE_KINDS, NOTE_TONES, NOTE_TONE_KEYS, CASE_CAPACITY, coverTexture, pageTexture, spineTexture } from './notes.js';
 
 export const TONES = {
   white: { name: 'ホワイト', color: 0xf3f1ed },
@@ -13,6 +14,10 @@ export const TONES = {
   black: { name: 'ブラック', color: 0x3b3b3b },
 };
 export const TONE_KEYS = Object.keys(TONES);
+// ノートの表紙の色（ノートだけが使う）
+Object.assign(TONES, NOTE_TONES);
+// 家具ごとに選べる色
+export const tonesFor = def => (def && def.tones) || TONE_KEYS;
 
 const matCache = new Map();
 function M(color, extra) {
@@ -488,7 +493,8 @@ const BUILDERS = {
       ],
     };
   },
-  notebook(t) {
+  // 以前のノート（ページに描ける）。描いたことのある古い宮殿のノートだけがこの形になる
+  notebookLegacy(t) {
     const m = M(t), W = 0.17, H = 0.24, g = group();
     const paper = M(0xfdfcf8);
     g.add(box(W, 0.004, H, m, -W / 2, 0.002, 0));
@@ -506,6 +512,13 @@ const BUILDERS = {
       ],
     };
   },
+
+  notebook: (t, p) => noteModel('notebook', t, p),
+  diary: (t, p) => noteModel('diary', t, p),
+  techo: (t, p) => noteModel('techo', t, p),
+  notecase: (t, p) => noteCase('notecase', t, p),
+  notecaseW: (t, p) => noteCase('notecaseW', t, p),
+  notecaseS: (t, p) => noteCase('notecaseS', t, p),
 
   gramophone(t, props) {
     const m = M(t), brass = M(0xc9a35a), dark = M(0x1d1d1f), g = group();
@@ -780,6 +793,92 @@ function mulberry(a) {
   return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
 
+// ---------- ノート ----------
+// 閉じていれば表紙に見出し、開いていれば見開きのページを表示する
+function noteModel(kindKey, t, props = {}) {
+  if (kindKey === 'notebook' && props.legacy) return BUILDERS.notebookLegacy(t);
+  const k = NOTE_KINDS[kindKey], { W, H, T } = k, m = M(t), paper = M(0xfbf9f2), g = group();
+  const page = Number.isInteger(props.page) ? props.page : -1;
+  const text = props.text || '';
+  const planeMat = tex => new THREE.MeshLambertMaterial({ map: tex });
+  if (page < 0) {
+    g.add(box(W, 0.002, H, m, 0, 0.001, 0));
+    g.add(box(W - 0.006, T - 0.004, H - 0.008, paper, 0.002, T / 2, 0));
+    g.add(box(W, 0.002, H, m, 0, T - 0.001, 0));
+    g.add(box(0.004, T, H, m, -W / 2 + 0.002, T / 2, 0));
+    const cover = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.002, H - 0.002), planeMat(coverTexture(props.title || '', t, kindKey)));
+    cover.rotation.x = -Math.PI / 2; cover.position.set(0, T + 0.0003, 0); g.add(cover);
+    if (k.ribbon) g.add(box(0.006, 0.001, 0.035, M(0xb0413e), W * 0.18, T * 0.5, H / 2 + 0.016));
+    if (k.band) g.add(box(0.006, T + 0.002, H + 0.002, M(0x2a2a2a), W * 0.36, T / 2, 0));
+  } else {
+    // 見開き：左が page、右が page+1
+    const t2 = T / 2;
+    for (const sx of [-1, 1]) {
+      g.add(box(W, 0.002, H, m, sx * W / 2, 0.001, 0));
+      g.add(box(W - 0.006, t2, H - 0.008, paper, sx * (W / 2 - 0.001), 0.002 + t2 / 2, 0));
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.01, H - 0.012), planeMat(pageTexture(text, page + (sx > 0 ? 1 : 0), kindKey)));
+      pl.rotation.x = -Math.PI / 2; pl.position.set(sx * (W / 2 - 0.001), 0.002 + t2 + 0.0003, 0); g.add(pl);
+    }
+    g.add(box(0.008, 0.004, H, m, 0, 0.002, 0));
+    if (k.ribbon) g.add(box(0.004, 0.001, H + 0.03, M(0xb0413e), 0.002, 0.003 + t2, 0.015));
+  }
+  return { group: g, surfaces: [] };
+}
+
+// ノート棚：しまったノートを縦に並べる（背表紙に見出し）
+function noteCase(type, t, props = {}) {
+  const m = M(t), g = group(), notes = props.notes || [];
+  const surfaces = [];
+  let rows; // [{ x0, x1, y, z, per }]
+  if (type === 'notecase') {
+    const W = 0.8, H = 1.06, D = 0.3;
+    g.add(box(0.03, H, D, m, -W / 2 + 0.015, H / 2, 0), box(0.03, H, D, m, W / 2 - 0.015, H / 2, 0));
+    g.add(box(W, H, 0.012, m, 0, H / 2, -D / 2 + 0.006));
+    const ys = [0.03, 0.37, 0.71];
+    ys.forEach(y => g.add(box(W - 0.06, 0.03, D - 0.012, m, 0, y, 0.006)));
+    g.add(box(W, 0.03, D, m, 0, H - 0.015, 0));
+    surfaces.push(top('top', W - 0.02, D - 0.04, H + 0.0001, 0, 0, { label: '天板' }));
+    // 上の段から並べる（目の高さに来るように）
+    rows = ys.slice().reverse().map(y => ({ x0: -W / 2 + 0.04, x1: W / 2 - 0.04, y: y + 0.015, zBack: -D / 2 + 0.014, per: 10 }));
+  } else if (type === 'notecaseW') {
+    const W = 0.62, D = 0.22, Hi = 0.3;
+    g.add(box(W, 0.02, D, m, 0, -Hi / 2 - 0.01, D / 2));
+    g.add(box(W, 0.02, D, m, 0, Hi / 2 + 0.01, D / 2));
+    g.add(box(0.02, Hi + 0.04, D, m, -W / 2 + 0.01, 0, D / 2), box(0.02, Hi + 0.04, D, m, W / 2 - 0.01, 0, D / 2));
+    g.add(box(W, Hi + 0.04, 0.008, m, 0, 0, 0.004));
+    surfaces.push(top('top', W - 0.02, D - 0.02, Hi / 2 + 0.0201, 0, D / 2, { label: '上' }));
+    rows = [{ x0: -W / 2 + 0.03, x1: W / 2 - 0.03, y: -Hi / 2, zBack: 0.01, per: 12 }];
+  } else {
+    // ブックエンド
+    const W = 0.3, D = 0.19;
+    g.add(box(W, 0.01, D, m, 0, 0.005, 0));
+    for (const sx of [-1, 1]) g.add(box(0.008, 0.17, D, m, sx * (W / 2 - 0.004), 0.085, 0));
+    rows = [{ x0: -W / 2 + 0.01, x1: W / 2 - 0.01, y: 0.01, zBack: -D / 2 + 0.005, per: 6 }];
+  }
+  // 本を並べる
+  let i = 0;
+  for (const r of rows) {
+    let x = r.x0;
+    for (let k = 0; k < r.per && i < notes.length; k++, i++) {
+      const n = notes[i], kind = NOTE_KINDS[n.type] || NOTE_KINDS.notebook;
+      const color = (TONES[n.tone] || NOTE_TONES.navy).color;
+      const th = Math.max(0.014, kind.T + 0.004);
+      if (x + th > r.x1) break;
+      const b = new THREE.Group();
+      b.position.set(x + th / 2, r.y, r.zBack + kind.W / 2);
+      b.add(box(th, kind.H, kind.W, M(color), 0, kind.H / 2, 0));
+      b.add(box(th - 0.002, kind.H - 0.006, 0.002, M(0xf3efe4), 0, kind.H / 2, -kind.W / 2 - 0.0005));
+      const sp = new THREE.Mesh(new THREE.PlaneGeometry(th * 0.96, kind.H * 0.97), new THREE.MeshLambertMaterial({ map: spineTexture((n.state && n.state.title) || '', color) }));
+      sp.position.set(0, kind.H / 2, kind.W / 2 + 0.0006);
+      b.add(sp);
+      b.userData.partName = 'note:' + i;
+      g.add(b);
+      x += th + 0.002;
+    }
+  }
+  return { group: g, surfaces };
+}
+
 // カタログ（mount: floor / wall / ceiling / small）
 export const CATALOG = [
   { id: 'table', name: 'テーブル', mount: 'floor', tone: 'oak', collide: true, note: '描ける・飾れる' },
@@ -790,6 +889,7 @@ export const CATALOG = [
   { id: 'sofa', name: 'ソファ', mount: 'floor', tone: 'gray', collide: true, note: '上に置ける' },
   { id: 'bed', name: 'ベッド', mount: 'floor', tone: 'oak', collide: true, note: '上に置ける' },
   { id: 'bookshelf', name: '本棚', mount: 'floor', tone: 'white', collide: true, note: '小物を置ける' },
+  { id: 'notecase', name: 'ノート棚', mount: 'floor', tone: 'oak', collide: true, note: `ノートを${CASE_CAPACITY.notecase}冊しまえる` },
   { id: 'cabinet', name: 'キャビネット', mount: 'floor', tone: 'white', collide: true, note: '扉が開く・中に入れられる' },
   { id: 'tansu', name: 'タンス', mount: 'floor', tone: 'oak', collide: true, note: '引き出しが開く' },
   { id: 'nightstand', name: 'ナイトテーブル', mount: 'floor', tone: 'white', collide: true, note: '引き出しが開く' },
@@ -807,6 +907,7 @@ export const CATALOG = [
   { id: 'board', name: 'コルクボード', mount: 'wall', tone: 'oak', note: '描ける・写真' },
   { id: 'whiteboard', name: 'ホワイトボード', mount: 'wall', tone: 'gray', note: '描ける・写真' },
   { id: 'wallshelf', name: '壁棚', mount: 'wall', tone: 'oak', note: '小物を置ける' },
+  { id: 'notecaseW', name: '壁のノート棚', mount: 'wall', tone: 'white', note: `ノートを${CASE_CAPACITY.notecaseW}冊しまえる` },
   { id: 'wallmonitor', name: '壁掛けモニター', mount: 'wall', tone: 'black', note: '宮殿の情報を表示' },
   { id: 'wallmonitorL', name: '大型モニター', mount: 'wall', tone: 'black', note: '宮殿の情報を表示' },
   { id: 'wallcabinet', name: '吊り戸棚', mount: 'wall', tone: 'white', note: '扉が開く・中に入れられる' },
@@ -835,7 +936,10 @@ export const CATALOG = [
   { id: 'smallbox', name: '小箱', mount: 'small', tone: 'oak', note: 'ふたが開く・中に入れられる' },
   { id: 'orb', name: '球のオブジェ', mount: 'small', tone: 'gray' },
   { id: 'crystal', name: '水晶玉', mount: 'small', tone: 'walnut' },
-  { id: 'notebook', name: 'ノート', mount: 'small', tone: 'walnut', note: '開閉・ページに書ける' },
+  { id: 'notebook', name: 'ノート', mount: 'small', tone: 'navy', tones: NOTE_TONE_KEYS, note: '長い文章を書ける・本棚にしまえる' },
+  { id: 'diary', name: '日記帳', mount: 'small', tone: 'wine', tones: NOTE_TONE_KEYS, note: '長い文章を書ける・本棚にしまえる' },
+  { id: 'techo', name: '手帳', mount: 'small', tone: 'ink', tones: NOTE_TONE_KEYS, note: '長い文章を書ける・本棚にしまえる' },
+  { id: 'notecaseS', name: 'ブックエンド', mount: 'small', tone: 'oak', note: `ノートを${CASE_CAPACITY.notecaseS}冊立てられる` },
   { id: 'monitor', name: 'モニター', mount: 'small', tone: 'black', note: '宮殿の情報を表示' },
   { id: 'nameplate', name: 'ネームプレート', mount: 'small', tone: 'oak', note: '書ける' },
   { id: 'key', name: '鍵', mount: 'small', tone: 'oak' },
