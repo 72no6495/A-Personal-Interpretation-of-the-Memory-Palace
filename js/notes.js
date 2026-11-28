@@ -72,6 +72,7 @@ export const pageCount = text => paginate(text).length;
 
 // 1ページを描く（ctx の大きさは PAGE_W × PAGE_H を基準に拡大縮小）
 export function drawPage(ctx, text, index, kind = 'notebook') {
+  ensureGlyphs(text);
   const pages = paginate(text), lines = pages[index] || [], blank = index >= pages.length;
   const k = NOTE_KINDS[kind] || NOTE_KINDS.notebook;
   ctx.save();
@@ -111,6 +112,7 @@ export function pageTexture(text, index, kind) {
 
 // 表紙：色の上に見出しのラベル
 export function coverTexture(title, color, kind) {
+  ensureGlyphs(title, `500 40px ${TITLE_FONT}`);
   return cachedTexture(`c|${kind}|${color}|${fontsReady}|${title}`, 512, 724, (x, c) => {
     x.fillStyle = hex(color); x.fillRect(0, 0, c.width, c.height);
     // 布のような細かい模様
@@ -129,6 +131,7 @@ export function coverTexture(title, color, kind) {
 
 // 背表紙：縦書きの見出し
 export function spineTexture(title, color) {
+  ensureGlyphs(title, `500 40px ${TITLE_FONT}`);
   return cachedTexture(`s|${color}|${fontsReady}|${title}`, 64, 512, (x, c) => {
     x.fillStyle = hex(color); x.fillRect(0, 0, c.width, c.height);
     x.fillStyle = light(color) ? 'rgba(255,255,255,0.7)' : '#f3efe6';
@@ -167,11 +170,29 @@ function roundRect(x, a, b, w, h, r) {
 let fontsReady = 0;
 const fontListeners = new Set();
 export function onFontsReady(fn) { fontListeners.add(fn); }
+const fontsChanged = () => {
+  fontsReady++; pageCache.clear(); measureCtx = null;
+  fontListeners.forEach(f => f());
+  window.dispatchEvent(new Event('note-fonts'));
+};
 if (document.fonts) {
   Promise.all([
     document.fonts.load(PAGE_FONT, 'あ'),
     document.fonts.load(`500 40px ${TITLE_FONT}`, 'あ'),
-  ]).catch(() => {}).then(() => { fontsReady = 1; pageCache.clear(); measureCtx = null; fontListeners.forEach(f => f()); });
+  ]).catch(() => {}).then(fontsChanged);
+}
+// Web フォントは文字の範囲ごとに分かれて読み込まれるので、使う文字の分を読み込む（読み込めたら描き直す）
+const requested = new Set();
+export function ensureGlyphs(text, font = PAGE_FONT) {
+  if (!document.fonts || !text) return;
+  const key = font + '|' + text;
+  if (requested.has(key)) return;
+  requested.add(key);
+  if (requested.size > 500) requested.clear();
+  let ok = true;
+  try { ok = document.fonts.check(font, text); } catch { /* 無視 */ }
+  if (ok) return;
+  document.fonts.load(font, text).then(f => { if (f && f.length) fontsChanged(); }).catch(() => {});
 }
 
 // ---------- 画面（読む・編集・本棚） ----------
@@ -320,11 +341,23 @@ export class NotesUI {
     sfx.open();
     this.app.ui.openModal((box, close) => {
       box.innerHTML = `
-        <div class="note-head"><h3></h3><button class="icon-btn note-x" aria-label="閉じる">✕</button></div>
+        <div class="note-head"><h3></h3><button class="chip note-zoom" title="拡大表示（Z）"></button><button class="icon-btn note-x" aria-label="閉じる">✕</button></div>
         <div class="note-stage"><button class="note-nav prev" aria-label="前のページ">‹</button><canvas class="note-page"></canvas><button class="note-nav next" aria-label="次のページ">›</button></div>
-        <div class="note-count"></div>
+        <div class="note-count-row"><button class="note-mini prev" aria-label="前のページ">‹</button><span class="note-count"></span><button class="note-mini next" aria-label="次のページ">›</button></div>
         <div class="note-foot"><div class="note-left"></div><button class="btn primary note-edit">編集</button></div>`;
       const h3 = box.querySelector('h3'), cv = box.querySelector('canvas'), count = box.querySelector('.note-count'), left = box.querySelector('.note-left');
+      const stage = box.querySelector('.note-stage'), zb = box.querySelector('.note-zoom');
+      // 拡大表示：0 = ふつう、1 = 画面いっぱいの幅、2 = さらに大きく（前回の大きさを覚えておく）
+      const ZOOM_NAMES = ['拡大', 'さらに拡大', '元の大きさ'];
+      const applyZoom = () => {
+        const z = this.zoom || 0;
+        box.classList.toggle('zoomed', z > 0);
+        box.classList.toggle('zoomed2', z === 2);
+        if (box.parentElement) box.parentElement.style.padding = z ? '0' : '';
+        zb.textContent = ZOOM_NAMES[z];
+        zb.classList.toggle('on', z > 0);
+      };
+      zb.onclick = () => { this.zoom = ((this.zoom || 0) + 1) % 3; sfx.click(); applyZoom(); render(); stage.scrollTop = 0; };
       const render = () => {
         const n = this.resolve(ref);
         if (!n) { close(); return; }
@@ -332,12 +365,15 @@ export class NotesUI {
         idx = Math.max(0, Math.min(total - 1, idx));
         h3.textContent = n.state.title || '（見出しなし）';
         const dpr = Math.min(2, window.devicePixelRatio || 1);
-        cv.width = Math.round(PAGE_W * dpr * 0.8); cv.height = Math.round(PAGE_H * dpr * 0.8);
+        // 拡大しているときは、表示する大きさに合わせて細かく描く
+        const cssW = (this.zoom || 0) > 0 ? Math.max(300, (stage.clientWidth || 600) * (this.zoom === 2 ? 1.7 : 1)) : PAGE_W * 0.8;
+        const k = Math.min(4096 / PAGE_H, cssW * dpr / PAGE_W);
+        cv.width = Math.round(PAGE_W * k); cv.height = Math.round(PAGE_H * k);
         const x = cv.getContext('2d'); x.setTransform(cv.width / PAGE_W, 0, 0, cv.height / PAGE_H, 0, 0);
         drawPage(x, n.state.text || '', idx, kind);
         count.textContent = `${idx + 1} / ${total} ページ`;
-        box.querySelector('.prev').disabled = idx <= 0;
-        box.querySelector('.next').disabled = idx >= total - 1;
+        box.querySelectorAll('.prev').forEach(b => { b.disabled = idx <= 0; });
+        box.querySelectorAll('.next').forEach(b => { b.disabled = idx >= total - 1; });
         // 置き方・しまう・取り出す
         left.innerHTML = '';
         const btn = (t, fn, cls = '') => { const b = document.createElement('button'); b.className = 'btn small ' + cls; b.textContent = t; b.onclick = fn; left.appendChild(b); return b; };
@@ -354,26 +390,35 @@ export class NotesUI {
         }
       };
       const go = d => { const n = this.resolve(ref); const total = pageCount((n && n.state.text) || ''); const ni = Math.max(0, Math.min(total - 1, idx + d)); if (ni !== idx) { idx = ni; sfx.page ? sfx.page() : sfx.click(); render(); } };
-      box.querySelector('.prev').onclick = () => go(-1);
-      box.querySelector('.next').onclick = () => go(1);
+      box.querySelectorAll('.prev').forEach(b => { b.onclick = () => { go(-1); stage.scrollTop = 0; }; });
+      box.querySelectorAll('.next').forEach(b => { b.onclick = () => { go(1); stage.scrollTop = 0; }; });
       box.querySelector('.note-x').onclick = () => { sfx.click(); close(); };
       box.querySelector('.note-edit').onclick = () => { sfx.click(); this.openEditor(ref, () => render(), idx); };
       // めくる：スワイプ・キー・ページの左右をタップ
-      let sx = null;
-      cv.addEventListener('pointerdown', e => { sx = e.clientX; });
+      //   拡大中はスクロールで読むので、ページのタップではめくらない（横のスワイプとボタンでめくる）
+      let sx = null, sy = 0;
+      cv.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; });
       cv.addEventListener('pointerup', e => {
         if (sx === null) return;
-        const dx = e.clientX - sx; sx = null;
-        if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
-        else { const r = cv.getBoundingClientRect(); go(e.clientX - r.left > r.width / 2 ? 1 : -1); }
+        const dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
+        const z = this.zoom || 0;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 2 && z < 2) { go(dx < 0 ? 1 : -1); stage.scrollTop = 0; }
+        else if (!z && Math.abs(dx) < 10 && Math.abs(dy) < 10) { const r = cv.getBoundingClientRect(); go(e.clientX - r.left > r.width / 2 ? 1 : -1); }
       });
       const onKey = e => {
         if (!box.isConnected) { window.removeEventListener('keydown', onKey); return; }
-        if (box.querySelector('.note-editor')) return;
-        if (e.key === 'ArrowRight') go(1); else if (e.key === 'ArrowLeft') go(-1);
+        if (this.app.ui.modals.length && this.app.ui.modals[this.app.ui.modals.length - 1].box !== box) return; // 編集画面などが上にあるとき
+        if (e.key === 'ArrowRight') { go(1); stage.scrollTop = 0; } else if (e.key === 'ArrowLeft') { go(-1); stage.scrollTop = 0; }
+        else if (e.key === 'z' || e.key === 'Z') zb.click();
       };
       window.addEventListener('keydown', onKey);
+      applyZoom();
       render();
+      const onFonts = () => { if (!box.isConnected) { window.removeEventListener('note-fonts', onFonts); return; } render(); };
+      window.addEventListener('note-fonts', onFonts);
+      // 拡大中に画面の大きさが変わったら描き直す
+      const onResize = () => { if (!box.isConnected) { window.removeEventListener('resize', onResize); return; } if (this.zoom) render(); };
+      window.addEventListener('resize', onResize);
     }, { className: 'note-modal', onClose: () => window.dispatchEvent(new Event('note-closed')) });
   }
 

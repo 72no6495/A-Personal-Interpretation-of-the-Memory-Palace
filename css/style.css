@@ -350,7 +350,18 @@ body.touch .tool-btn span { white-space: nowrap; font-size: 10px; letter-spacing
 .note-page { display: block; height: min(62vh, 560px); max-width: calc(100% - 76px); aspect-ratio: 600 / 848; object-fit: contain; border-radius: 6px; box-shadow: 0 6px 22px rgba(40,35,25,.16), 0 0 0 1px rgba(0,0,0,.05); touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
 .note-nav { flex-shrink: 0; width: 34px; height: 64px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font-size: 26px; color: var(--ink); }
 .note-nav:disabled { opacity: .3; }
-.note-count { text-align: center; color: var(--sub); font-size: 12.5px; margin-top: 8px; }
+.note-count-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px; }
+.note-count { color: var(--sub); font-size: 12.5px; }
+.note-mini { display: none; width: 44px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font-size: 20px; color: var(--ink); }
+.note-mini:disabled { opacity: .3; }
+.note-zoom { flex-shrink: 0; }
+/* 拡大表示：画面いっぱいに広げて、ページをスクロールして読む */
+.modal.note-modal.zoomed { width: 100%; max-width: none; height: 100%; max-height: none; border-radius: 0; border: 0; padding: calc(10px + var(--safe-t)) calc(12px + var(--safe-r)) calc(10px + var(--safe-b)) calc(12px + var(--safe-l)); }
+.zoomed .note-stage { flex: 1 1 auto; min-height: 0; display: block; overflow: auto; text-align: center; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; border-radius: 6px; background: #f3f1ec; }
+.zoomed .note-page { display: inline-block; height: auto; width: min(100%, 900px); max-width: none; cursor: default; touch-action: pan-x pan-y; border-radius: 0; }
+.zoomed2 .note-page { width: min(170%, 1500px); }
+.zoomed .note-nav { display: none; }
+.zoomed .note-mini { display: inline-flex; align-items: center; justify-content: center; }
 .note-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .note-left { display: flex; flex-wrap: wrap; gap: 6px; }
 .note-edit { flex-shrink: 0; padding: 10px 22px; }

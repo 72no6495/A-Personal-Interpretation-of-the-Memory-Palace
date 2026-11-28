@@ -42,6 +42,8 @@ export class XRMode {
     this.catMount = 'floor';
     this.catIndex = 0;
     this.thumbImgs = new Map();
+    // ノートの文字の読み込みが終わったら、パレットを描き直す
+    window.addEventListener('note-fonts', () => { this.panelDirty = true; });
     this.checkSupport();
   }
 
@@ -590,7 +592,32 @@ export class XRMode {
     const back = () => this.openNote(ref, this.notePage);
     B(400, 482, 284, 84, '見出しを変える', () => this.openText(t => { save({ title: t.trim().slice(0, 30) }); back(); }, { initial: n.state.title || '', oneLine: true, max: 30, title: 'ノートの見出し', okLabel: '決定', onCancel: back }), { small: true });
     B(704, 482, 284, 84, '編集', () => this.openText(t => { save({ text: t }); this.notePage = pageCount(t) - 1; back(); }, { initial: text, title: 'ノートの本文（最後に書き足せます）', okLabel: '保存', onCancel: back }), { primary: true });
-    B(36, 590, 952, 84, '閉じる', () => { this.mode = 'main'; });
+    B(36, 590, 340, 84, '拡大して読む', () => { this.mode = 'notezoom'; });
+    B(400, 590, 588, 84, '閉じる', () => { this.mode = 'main'; });
+    // ページそのものを押しても拡大
+    B(36, 80, 340, 481, '', () => { this.mode = 'notezoom'; }, { ghost: true });
+  }
+
+  // パレットいっぱいにページを出す
+  drawNoteZoom(x, B, font) {
+    const n = this.app.notes.resolve(this.noteRef);
+    if (!n) { this.mode = 'main'; return; }
+    const text = n.state.text || '', total = pageCount(text);
+    this.notePage = Math.max(0, Math.min(total - 1, this.notePage));
+    const idx = this.notePage;
+    if (!this.pageCv) { this.pageCv = document.createElement('canvas'); this.pageCv.width = 600; this.pageCv.height = 848; }
+    drawPage(this.pageCv.getContext('2d'), text, idx, n.type);
+    // 上の見出しは描かず、ページを最大に
+    x.clearRect(0, 0, CW, CH);
+    rr(x, 4, 4, CW - 8, CH - 8, 36); x.fillStyle = 'rgba(255,255,255,0.96)'; x.fill();
+    const ph = CH - 24, pw = ph * 600 / 848, px = (CW - pw) / 2;
+    x.drawImage(this.pageCv, px, 12, pw, ph);
+    B(16, 200, px - 32, 200, '‹', () => { this.notePage = Math.max(0, idx - 1); }, { big: true, disabled: idx <= 0 });
+    B(px + pw + 16, 200, CW - px - pw - 32, 200, '›', () => { this.notePage = Math.min(total - 1, idx + 1); }, { big: true, disabled: idx >= total - 1 });
+    B(16, 560, px - 32, 180, '戻す', () => { this.mode = 'note'; }, { primary: true });
+    B(px + pw + 16, 560, CW - px - pw - 32, 180, '閉じる', () => { this.mode = 'main'; });
+    x.fillStyle = '#85858b'; x.textAlign = 'center'; x.font = `400 24px ${font}`;
+    x.fillText(`${idx + 1}/${total}`, px / 2, 470);
   }
 
   drawShelf(x, B, font) {
@@ -657,6 +684,8 @@ export class XRMode {
       this.drawSettings(x, B, font);
     } else if (this.mode === 'note') {
       this.drawNote(x, B, font);
+    } else if (this.mode === 'notezoom') {
+      this.drawNoteZoom(x, B, font);
     } else if (this.mode === 'shelf') {
       this.drawShelf(x, B, font);
     } else if (this.mode === 'shelfpick') {
@@ -772,6 +801,7 @@ export class XRMode {
     }
 
     for (const b of btns) {
+      if (b.ghost) continue; // 見えないボタン（ページを押したときなど）
       const hover = this.hoverBtn && this.hoverBtn.x === b.x && this.hoverBtn.y === b.y && this.hoverBtn.label === b.label;
       rr(x, b.x, b.y, b.w, b.h, 18);
       if (b.img) {
