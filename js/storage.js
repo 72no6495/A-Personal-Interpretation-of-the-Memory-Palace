@@ -103,6 +103,12 @@ export async function downloadBackup(data) {
   return downloadBlob(makeBackupBlob(data), backupFileName(data.name), 'application/json');
 }
 
+// 保存するファイル名（端末によっては日本語の名前が消えるので英数字にする）
+export function thumbFileName(time = Date.now()) {
+  const d = new Date(time), p = n => String(n).padStart(2, '0');
+  return `memory-palace-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.png`;
+}
+
 // ファイルを保存（スマホは共有メニュー、それ以外はダウンロード）
 export async function downloadBlob(blob, name, type) {
   try {
