@@ -220,7 +220,13 @@ class App {
       tc.position.set(0, 1.7, ROOM.D / 2 - 0.15);
       tc.lookAt(0, 1.05, -ROOM.D / 2);
       tc.updateProjectionMatrix();
-      this.renderer.render(this.world.scene, tc);
+      // ドアが開いていても（ドアから出るときなど）、閉じた状態で撮る
+      const pw = this.world, doorRot = pw.doorPivot ? pw.doorPivot.rotation.y : 0, doorLit = pw.doorLight ? pw.doorLight.visible : false;
+      if (pw.doorPivot) pw.doorPivot.rotation.y = 0;
+      if (pw.doorLight) pw.doorLight.visible = false;
+      this.renderer.render(pw.scene, tc);
+      if (pw.doorPivot) pw.doorPivot.rotation.y = doorRot;
+      if (pw.doorLight) pw.doorLight.visible = doorLit;
       hide.forEach((o, i) => { o.visible = vis[i]; });
       const c = document.createElement('canvas'); c.width = 384; c.height = 216;
       c.getContext('2d').drawImage(src, (sw - w) / 2, (sh - h) / 2, w, h, 0, 0, 384, 216);
