@@ -108,6 +108,8 @@ export class XRMode {
 
   onEnd() {
     const app = this.app;
+    this.exitThink(true);
+    if (this.hintMesh && this.hintMesh.parent) this.hintMesh.parent.remove(this.hintMesh);
     this.active = false;
     this.session = null;
     document.body.classList.remove('xr');
@@ -187,8 +189,14 @@ export class XRMode {
 
   onSelectStart(c) {
     if (this.blurred()) return;
-    c.down = true;
     const r = this.rayOf(c);
+    // 思考モード：ドアを選んだときだけ通常モードに戻る
+    if (this.thinking) {
+      const t = this.app.pickAll(r)[0];
+      if (t && t.target.type === 'door') this.exitThink();
+      return;
+    }
+    c.down = true;
     const p = this.panelHit(r);
     if (p) { c.onPanel = true; this.pressPanel(p); return; }
     c.onPanel = false;
@@ -239,10 +247,10 @@ export class XRMode {
         const t = app.pickAll(r)[0];
         if (t) { dist = t.hit.distance; hitPoint = t.hit.point; }
       }
-      const isLeftWithPanel = this.panel && this.panelOn === c;
+      const isLeftWithPanel = this.panel && this.panelOn === c && !this.thinking;
       c.line.visible = !isLeftWithPanel;
       c.line.scale.z = Math.max(0.05, dist);
-      c.dot.visible = !!hitPoint && !isLeftWithPanel;
+      c.dot.visible = !!hitPoint && !isLeftWithPanel && !this.thinking;
       if (hitPoint) c.dot.position.copy(this.rig.worldToLocal(hitPoint.clone()));
     }
     this.setHover(panelHover);
@@ -250,13 +258,10 @@ export class XRMode {
 
     // ツール：ホバーとドラッグ中の移動
     const owner = this.toolOwner;
-    if (owner && owner.down) app.tools.active.move(this.rayOf(owner), {});
+    if (this.thinking) { /* 思考モード：ツールは使わない */ }
+    else if (owner && owner.down) app.tools.active.move(this.rayOf(owner), {});
     else if (ptr && !panelHover) app.tools.active.hover(this.rayOf(ptr));
-    // 文字入力中：入力欄の中身が変わったら描き直す（入力イベントが届かない端末もあるので毎フレーム確かめる）
-    if (this.mode === 'text' && this.ta) {
-      const v = this.ta.value + '|' + (this.composing || '');
-      if (v !== this.lastText) { this.lastText = v; this.panelDirty = true; }
-    }
+    this.updateHint();
     if (this.panelDirty) this.drawPanel();
   }
 
@@ -308,6 +313,7 @@ export class XRMode {
   }
 
   onButton(side, i) {
+    if (this.thinking) return; // 思考モード中はボタン操作も休む（ドアで戻る）
     const t = this.app.tools;
     if (side === 'left' && i === 4) this.app.undo();
     else if (side === 'left' && i === 5) this.app.redo();
@@ -391,7 +397,7 @@ export class XRMode {
   }
 
   panelHit(r) {
-    if (!this.panel || !this.panel.parent) return null;
+    if (!this.panel || !this.panel.parent || !this.panel.visible) return null;
     const rc = this.app.raycaster;
     rc.set(r.ray.origin, r.ray.direction);
     const h = rc.intersectObject(this.panel, false)[0];
@@ -420,79 +426,113 @@ export class XRMode {
     this._msgT = setTimeout(() => { this.message = ''; this.panelDirty = true; }, 4000);
   }
 
-  // ---------- 文字入力 ----------
-  openText(onSubmit) {
+  // ---------- 文字入力（パレットのキーボード） ----------
+  //   Quest のシステムキーボードは、実機で入力が届かなかったので使わない
+  openText(onSubmit, opts = {}) {
+    if (this.thinking) this.exitThink(true);
     this.mode = 'text';
     this.textCb = onSubmit;
+    this.textOpts = opts;
     this.kbd = this.kbd || 'kana';
     this.shift = false;
-    this.composing = '';
-    const ta = this.textArea();
-    ta.value = '';
-    // トリガーを押した直後（ユーザー操作の中）にフォーカスすると、Quest のキーボードが出る
-    try { ta.focus({ preventScroll: true }); } catch { /* 無視 */ }
+    this.text = opts.initial || '';
     if (!this.panelOn) this.recenterPanel();
     this.panelDirty = true;
     sfx.open();
   }
 
-  // Quest のキーボード（システムキーボード）や Bluetooth キーボードの入力先
-  //   画面外や極端に小さい入力欄だと、端末によっては入力が届かないので、画面の中に透明で置く
-  textArea() {
-    if (!this.ta) {
-      const ta = document.createElement('textarea');
-      ta.id = 'xr-text-input';
-      ta.setAttribute('aria-label', 'VR の文字入力');
-      ta.setAttribute('autocomplete', 'off');
-      ta.style.cssText = 'position:fixed;left:8px;bottom:8px;width:60vw;height:3em;font-size:16px;opacity:0;z-index:-1;border:0;resize:none;';
-      const dirty = () => { this.panelDirty = true; };
-      ta.addEventListener('input', dirty);
-      ta.addEventListener('change', dirty);
-      ta.addEventListener('keyup', dirty);
-      ta.addEventListener('compositionupdate', e => { this.composing = e.data || ''; dirty(); });
-      ta.addEventListener('compositionend', () => { this.composing = ''; dirty(); });
-      ta.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.submitText(); }
-      });
-      document.body.appendChild(ta);
-      this.ta = ta;
-    }
-    return this.ta;
-  }
-
-  get textValue() { return this.ta ? this.ta.value : ''; }
-  // 入力中（変換前）の文字も含めて表示する
-  get textShown() {
-    const v = this.textValue, c = this.composing || '';
-    return c && !v.endsWith(c) ? v + c : v;
-  }
+  get textValue() { return this.text || ''; }
   typeKey(ch) {
-    const ta = this.textArea();
+    let v = this.textValue;
     if (ch === '゛' || ch === '゜' || ch === '小') {
-      const last = ta.value.slice(-1);
+      const last = v.slice(-1);
       let rep = null;
       if (ch === '゛') rep = DAKU[last] || UNDAKU[last] || (UNHANDAKU[last] && DAKU[UNHANDAKU[last]]);
       if (ch === '゜') rep = HANDAKU[last] || UNHANDAKU[last] || (UNDAKU[last] && HANDAKU[UNDAKU[last]]);
       if (ch === '小') rep = SMALL[last] || UNSMALL[last];
-      if (rep) ta.value = ta.value.slice(0, -1) + rep;
-    } else ta.value += ch;
+      if (rep) v = v.slice(0, -1) + rep;
+    } else if (!(this.textOpts && this.textOpts.oneLine && ch === '\n')) v += ch;
+    const max = this.textOpts && this.textOpts.max;
+    this.text = max ? Array.from(v).slice(0, max).join('') : v;
     if (this.shift && this.kbd === 'abc') this.shift = false;
     this.panelDirty = true;
   }
-  backspace() { const ta = this.textArea(); ta.value = Array.from(ta.value).slice(0, -1).join(''); this.panelDirty = true; }
+  backspace() { this.text = Array.from(this.textValue).slice(0, -1).join(''); this.panelDirty = true; }
+  clearText() { this.text = ''; this.panelDirty = true; }
   submitText() {
     const v = this.textValue, cb = this.textCb;
     this.textCb = null; this.mode = 'main';
-    if (this.ta) this.ta.blur();
     this.panelDirty = true;
     if (cb && v.trim()) cb(v);
   }
-  cancelText() { this.textCb = null; this.mode = 'main'; if (this.ta) this.ta.blur(); this.panelDirty = true; }
-  showSystemKeyboard() {
-    const ta = this.textArea();
-    try { ta.blur(); ta.focus({ preventScroll: true }); const n = ta.value.length; ta.setSelectionRange(n, n); } catch { /* 無視 */ }
-    const ok = this.session && this.session.isSystemKeyboardSupported;
-    if (ok === false) this.notify('この端末では Quest のキーボードが使えません');
+  cancelText() { this.textCb = null; this.mode = 'main'; this.panelDirty = true; }
+
+  // 宮殿の名前を変える
+  renamePalace() {
+    const app = this.app;
+    if (!app.world) return;
+    this.openText(n => {
+      n = n.trim();
+      if (!n || !app.world) return;
+      app.world.name = n; app.ui.setPalaceName(n); app.markDirty();
+      this.notify('名前を変えました');
+    }, { initial: app.world.name, oneLine: true, max: 40, title: '宮殿の名前', okLabel: '決定' });
+  }
+
+  // ---------- 思考モード：パレットを消して、歩き回りながら考える ----------
+  enterThink() {
+    if (this.thinking) return;
+    const t = this.app.tools;
+    t.active.cancel(); t.setSelected(null); t.setHover && t.setHover(null);
+    for (const k of ['pen', 'eraser']) if (t.tools[k].cursor) t.tools[k].cursor.visible = false;
+    for (const k of ['furniture', 'image']) if (t.tools[k].ghost) t.tools[k].ghost.visible = false;
+    if (this.toolOwner) { this.toolOwner = null; }
+    this.thinking = true;
+    this.mode = 'main';
+    if (this.panel) this.panel.visible = false;
+    for (const c of this.controllers) { c.line.material.opacity = 0.22; }
+    this.showHint('ドアをトリガーで選ぶと、思考モードを解除できます');
+    sfx.tool();
+  }
+  exitThink(quiet = false) {
+    if (!this.thinking) return;
+    this.thinking = false;
+    if (this.panel) this.panel.visible = true;
+    for (const c of this.controllers) { c.line.material.opacity = 0.7; }
+    this.hideHint();
+    this.panelDirty = true;
+    if (!quiet) { sfx.open(); this.notify('通常モードに戻りました'); }
+  }
+
+  // 目の前に少しだけ出る案内（思考モードなど、パレットが消えているとき用）
+  showHint(msg, ms = 4500) {
+    if (!this.hintMesh) {
+      const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 128;
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.07), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+      m.renderOrder = 40; m.position.set(0, -0.1, -0.8);
+      disableRaycast(m);
+      this.hintMesh = m;
+    }
+    const m = this.hintMesh, cv = m.material.map.image, x = cv.getContext('2d');
+    x.clearRect(0, 0, cv.width, cv.height);
+    rr(x, 4, 4, cv.width - 8, cv.height - 8, 50); x.fillStyle = 'rgba(30,30,34,0.82)'; x.fill();
+    x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '500 44px "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif';
+    x.fillText(msg, cv.width / 2, cv.height / 2 + 2);
+    m.material.map.needsUpdate = true;
+    m.material.opacity = 1;
+    if (m.parent !== this.app.camera) this.app.camera.add(m);
+    m.visible = true;
+    this.hintUntil = performance.now() + ms;
+  }
+  hideHint() { if (this.hintMesh) { this.hintMesh.visible = false; this.hintUntil = 0; } }
+  updateHint() {
+    const m = this.hintMesh;
+    if (!m || !m.visible) return;
+    const left = this.hintUntil - performance.now();
+    m.material.opacity = Math.max(0, Math.min(1, left / 600));
+    if (left <= 0) m.visible = false;
   }
 
   openTrackPanel(furn) {
@@ -543,10 +583,12 @@ export class XRMode {
       B(162, 520, 700, 110, '部屋に戻る', () => { this.mode = 'main'; });
     } else {
       // ツール
-      VR_TOOLS.forEach((t, i) => B(36 + i * 160, 90, 148, 100, TOOL_NAMES[t], () => {
+      VR_TOOLS.forEach((t, i) => B(36 + i * 136, 90, 126, 100, TOOL_NAMES[t], () => {
         tools.select(t);
         if (t === 'furniture' && !st.furnitureType) this.selectCatalog();
       }, { on: tools.current === t }));
+      // 一番右：思考モード
+      B(36 + 6 * 136, 90, 136, 100, '思考', () => this.enterThink());
       const cy = 210;
       const cur = tools.current;
       if (cur === 'text') {
@@ -669,37 +711,25 @@ export class XRMode {
 
   // ---------- 文字入力の画面 ----------
   drawTextMode(x, B, font) {
-    const st = this.app.tools.state;
-    const pal = !!settings.vrKeyboard;
+    const st = this.app.tools.state, o = this.textOpts || {};
+    const forText = !o.title; // 壁などに書く文字（大きさ・色がある）
     // 入力中の文字
-    const boxH = pal ? 150 : 300;
-    rr(x, 36, 80, 740, boxH, 18); x.fillStyle = '#f4f4f6'; x.fill();
-    const v = this.textShown;
-    const maxLines = pal ? 2 : 4;
-    const lines = v.split('\n').slice(-maxLines);
-    x.textAlign = 'left'; x.fillStyle = v ? (st.color === '#ffffff' ? '#777' : st.color) : '#a0a0a6'; x.font = `500 40px ${font}`;
-    if (!v) x.fillText(pal ? 'ここに文字が入ります' : 'Quest のキーボードで入力してください', 60, 155);
+    rr(x, 36, 80, 740, 150, 18); x.fillStyle = '#f4f4f6'; x.fill();
+    const v = this.textValue;
+    const lines = v.split('\n').slice(-2);
+    x.textAlign = 'left'; x.fillStyle = v ? (forText ? (st.color === '#ffffff' ? '#777' : st.color) : '#2b2b2e') : '#a0a0a6'; x.font = `500 40px ${font}`;
+    if (!v) x.fillText('ここに文字が入ります', 60, 155);
     else lines.forEach((l, i) => { const t = l.length > 22 ? '…' + l.slice(-21) : l; x.fillText(t + (i === lines.length - 1 ? '｜' : ''), 60, 125 + i * 56 + (lines.length === 1 ? 28 : 0)); });
     x.fillStyle = '#85858b'; x.font = `400 20px ${font}`; x.textAlign = 'right';
-    x.fillText(`大きさ ${st.textSize.toFixed(1)}cm`, 764, 80 + boxH - 14);
-    B(792, 80, 196, 70, '大きく', () => { st.textSize = Math.min(80, st.textSize * 1.25); });
-    B(792, 160, 196, 70, '小さく', () => { st.textSize = Math.max(1, st.textSize / 1.25); });
-    const by = 612, bh = 76;
-    if (!pal) {
-      // ふだんは Quest のキーボードで入力する
-      B(792, 240, 196, 140, 'キーボード\nを出す', () => this.showSystemKeyboard(), { small: true });
-      x.fillStyle = '#85858b'; x.font = `400 24px ${font}`; x.textAlign = 'left';
-      x.fillText('キーボードが出ないときは「キーボードを出す」を押してください。', 40, 430);
-      x.fillText('Quest のキーボードが使えないときは、「パレットで入力」に切り替えると', 40, 470);
-      x.fillText('パレットのキーボードで入力できます（設定でも切り替えられます）。', 40, 506);
-      B(36, by, 260, bh, 'パレットで入力', () => { settings.vrKeyboard = true; saveSettings(); }, { small: true });
-      B(304, by, 160, bh, '⌫', () => this.backspace());
-      B(472, by, 160, bh, '改行', () => this.typeKey('\n'));
-      B(640, by, 160, bh, 'やめる', () => this.cancelText());
-      B(808, by, 180, bh, '書く', () => this.submitText(), { primary: true });
-      return;
+    if (forText) {
+      x.fillText(`大きさ ${st.textSize.toFixed(1)}cm`, 764, 216);
+      B(792, 80, 196, 70, '大きく', () => { st.textSize = Math.min(80, st.textSize * 1.25); });
+      B(792, 160, 196, 70, '小さく', () => { st.textSize = Math.max(1, st.textSize / 1.25); });
+    } else {
+      x.fillText(o.title, 764, 216);
+      B(792, 80, 196, 150, '全部消す', () => this.clearText());
     }
-    // パレットのキーボード（Quest のキーボードが使えないときの代わり）
+    // キーボード
     const kw = 95, kh = 56, gx = 36, gy = 246;
     if (this.kbd === 'kana') {
       for (let col = 0; col < 10; col++) for (let row = 0; row < 5; row++) {
@@ -716,13 +746,13 @@ export class XRMode {
       ABC_EXTRA.forEach((ch, i) => B(gx + i * kw, gy + 4 * (kh + 4), kw - 6, kh, ch, () => this.typeKey(ch), { key: true }));
       B(gx, gy + 5 * (kh + 4), kw * 2 - 6, kh, this.shift ? '⇧ 大文字' : '⇧', () => { this.shift = !this.shift; }, { key: true, on: this.shift });
     }
-    B(36, by, 120, bh, this.kbd === 'kana' ? 'ABC' : 'かな', () => { this.kbd = this.kbd === 'kana' ? 'abc' : 'kana'; this.shift = false; });
-    B(164, by, 120, bh, '⌫', () => this.backspace());
-    B(292, by, 140, bh, '空白', () => this.typeKey(' '));
-    B(440, by, 120, bh, '改行', () => this.typeKey('\n'));
-    B(568, by, 200, bh, 'Questキーボード', () => { settings.vrKeyboard = false; saveSettings(); this.showSystemKeyboard(); }, { small: true });
-    B(776, by, 100, bh, 'やめる', () => this.cancelText());
-    B(884, by, 104, bh, '書く', () => this.submitText(), { primary: true });
+    const by = 612, bh = 76;
+    B(36, by, 140, bh, this.kbd === 'kana' ? 'ABC' : 'かな', () => { this.kbd = this.kbd === 'kana' ? 'abc' : 'kana'; this.shift = false; });
+    B(184, by, 140, bh, '⌫', () => this.backspace());
+    B(332, by, 170, bh, '空白', () => this.typeKey(' '));
+    if (!o.oneLine) B(510, by, 140, bh, '改行', () => this.typeKey('\n'));
+    B(658, by, 150, bh, 'やめる', () => this.cancelText());
+    B(816, by, 172, bh, o.okLabel || '書く', () => this.submitText(), { primary: true });
   }
 
   // ---------- VR の設定 ----------
@@ -750,7 +780,6 @@ export class XRMode {
         ['移動の速さ', () => step('moveSpeed', 0.4, 2, 0.1, v => `× ${v.toFixed(1)}`)],
         ['向きの変え方', choice('vrTurn', [['snap30', '30°ずつ'], ['snap45', '45°ずつ'], ['smooth', 'なめらか']])],
         ['足音', onOff('footsteps')],
-        ['パレットのキーボード', onOff('vrKeyboard')],
         ['手ぶれ補正（初期値）', () => step('smoothing', 0, 0.9, 0.05, pct)],
       ]],
       ['パレット', [
@@ -758,6 +787,7 @@ export class XRMode {
         ['パレットの位置', choice('vrPanelFollow', [['hand', '手につく'], ['view', '視線につく'], ['world', 'その場']])],
         ['パレットの大きさ', choice('vrPanelSize', [[0.8, '小'], [1, '中'], [1.25, '大']])],
         ['自動保存', onOff('autosave')],
+        ['宮殿の名前', () => { B(400, 0, 286, 58, '名前を変える', () => this.renamePalace()); }],
       ]],
       ['画質', [
         ['VR の画質', choice('vrQuality', Object.entries(VR_QUALITY).map(([k, q]) => [k, q.name]))],
@@ -786,7 +816,6 @@ export class XRMode {
     // 補足
     x.fillStyle = '#85858b'; x.textAlign = 'left'; x.font = `400 22px ${font}`;
     const note = {
-      0: '「パレットのキーボード」は、Quest のキーボードが使えないときの代わりです',
       2: (settings.vrQuality !== this.sessionQuality ? '画質は次に VR に入ったときに反映されます（視野の端の粗さはすぐ反映）。' : '画質を上げるほど見た目がきれいになり、動作は重くなります。') + '\n描画の解像度は、次に宮殿を開いたときに反映されます',
     }[this.setPage];
     if (note) note.split('\n').forEach((l, i) => x.fillText(l, 40, y0 + rows.length * rh + 24 + i * 32));
