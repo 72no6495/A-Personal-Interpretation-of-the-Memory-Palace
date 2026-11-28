@@ -6,6 +6,7 @@ import { isNoteType } from './notes.js';
 import { TRACKS } from './music.js';
 import { PAGES as MONITOR_PAGES } from './monitors.js';
 import { sfx } from './audio.js';
+import { downloadBlob, thumbFileName } from './storage.js';
 
 const svg = (inner, vb = '0 0 24 24') => `<svg viewBox="${vb}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 export const ICONS = {
@@ -231,7 +232,7 @@ export class UI {
       const card = document.createElement('div');
       card.className = 'palace-card';
       card.innerHTML = `<div class="thumb"></div><div class="info"><div class="name"></div><div class="meta"></div></div>
-        <div class="actions"><button class="btn primary" data-a="open">入る</button><button class="btn" data-a="backup">バックアップ</button><button class="btn" data-a="rename">名前</button><button class="btn danger" data-a="del">削除</button></div>`;
+        <div class="actions"><button class="btn primary" data-a="open">入る</button><button class="btn" data-a="backup">バックアップ</button><button class="btn" data-a="rename">名前</button><button class="btn" data-a="thumbimg">画像</button><button class="btn danger" data-a="del">削除</button></div>`;
       if (m.thumb) card.querySelector('.thumb').style.backgroundImage = `url("${m.thumb}")`;
       card.querySelector('.name').textContent = m.name;
       const c = m.counts || {};
@@ -240,6 +241,15 @@ export class UI {
       card.querySelector('.thumb').onclick = () => { sfx.click(); this.app.openPalace(m.id); };
       on('open', () => this.app.openPalace(m.id));
       on('backup', () => this.app.backupById(m.id));
+      // 保存してあるサムネイルを画像として保存
+      const tb = card.querySelector('[data-a=thumbimg]');
+      tb.title = 'サムネイル画像を保存';
+      if (!m.thumb) tb.disabled = true;
+      on('thumbimg', async () => {
+        const blob = await (await fetch(m.thumb)).blob();
+        const r = await downloadBlob(blob, thumbFileName(m.updated).replace(/\.png$/, '.jpg'), 'image/jpeg');
+        if (r !== 'cancelled') this.toast('サムネイル画像を保存しました');
+      });
       on('rename', async () => {
         const n = await this.prompt('名前を変更', '', m.name);
         if (n) { await this.app.renamePalace(m.id, n); this.renderPalaceList(); }

@@ -200,38 +200,75 @@ class App {
   }
 
   // ---------- 保存 ----------
+  // サムネイル：斜め上から部屋全体を見おろした景色（天井と手前の2枚の壁を外して、ミニチュアのように見せる）
   captureThumb() {
     if (this.renderer.xr.isPresenting) return null; // VR 中は撮れない（前のサムネイルを使う）
     try {
-      const hide = [this.tools.selHelper, this.tools.hovHelper, this.tools.tools.pen.cursor, this.tools.tools.eraser.cursor];
-      const vis = hide.map(o => o.visible);
-      hide.forEach(o => { o.visible = false; });
-      // いつも同じ景色：ドアの前から、部屋全体を見わたす
-      const src = this.renderer.domElement;
-      const sw = src.width, sh = src.height;
-      const ar = 384 / 216;
-      let w = sw, h = sw / ar;
-      if (h > sh) { h = sh; w = sh * ar; }
-      if (!this.thumbCam) this.thumbCam = new THREE.PerspectiveCamera(60, 1, 0.05, 60);
-      const tc = this.thumbCam;
-      tc.aspect = sw / sh;
-      // 16:9 に切り抜いたときの縦の画角が 62° になるように
-      tc.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(31)) * sh / h));
-      tc.position.set(0, 1.7, ROOM.D / 2 - 0.15);
-      tc.lookAt(0, 1.05, -ROOM.D / 2);
-      tc.updateProjectionMatrix();
-      // ドアが開いていても（ドアから出るときなど）、閉じた状態で撮る
-      const pw = this.world, doorRot = pw.doorPivot ? pw.doorPivot.rotation.y : 0, doorLit = pw.doorLight ? pw.doorLight.visible : false;
-      if (pw.doorPivot) pw.doorPivot.rotation.y = 0;
-      if (pw.doorLight) pw.doorLight.visible = false;
-      this.renderer.render(pw.scene, tc);
-      if (pw.doorPivot) pw.doorPivot.rotation.y = doorRot;
-      if (pw.doorLight) pw.doorLight.visible = doorLit;
+      const c = this.renderOverview(768, 432);
+      return c ? c.toDataURL('image/jpeg', 0.85) : null;
+    } catch (e) { console.warn(e); return null; }
+  }
+
+  // 見おろした景色を、指定の大きさの画像（canvas）に描く
+  renderOverview(width, height) {
+    const R = this.renderer, w = this.world;
+    if (!w || R.xr.isPresenting) return null;
+    // 細かく描いてから縮めて、線のギザギザを減らす
+    const ss = Math.max(1, Math.min(2, 4096 / width, R.capabilities.maxTextureSize / width));
+    const W = Math.round(width * ss), H = Math.round(height * ss);
+    const rt = new THREE.WebGLRenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace });
+    if (!this.overviewCam) this.overviewCam = new THREE.PerspectiveCamera(30, 16 / 9, 0.1, 100);
+    const cam = this.overviewCam;
+    cam.aspect = width / height;
+    cam.position.set(ROOM.W * 1.12, ROOM.H * 3.55, ROOM.D * 1.38);
+    cam.lookAt(0.15, 0.55, 0.3);
+    cam.updateProjectionMatrix();
+    // 隠すもの：天井・手前の壁（ドアの壁と右の壁）・選択枠・カーソル・置く前の見本
+    const t = this.tools;
+    const hide = [w.surfaces.get('ceiling').group, w.surfaces.get('wall_s').group, w.surfaces.get('wall_e').group,
+      t.selHelper, t.hovHelper, t.tools.pen.cursor, t.tools.eraser.cursor, t.tools.furniture.ghost, t.tools.image.ghost].filter(Boolean);
+    const vis = hide.map(o => o.visible);
+    hide.forEach(o => { o.visible = false; });
+    const prevTarget = R.getRenderTarget(), prevColor = R.getClearColor(new THREE.Color()), prevAlpha = R.getClearAlpha();
+    let pixels;
+    try {
+      R.setRenderTarget(rt);
+      R.setClearColor(0xe6e4df, 1);
+      R.clear();
+      R.render(w.scene, cam);
+      pixels = new Uint8Array(W * H * 4);
+      R.readRenderTargetPixels(rt, 0, 0, W, H, pixels);
+    } finally {
+      R.setRenderTarget(prevTarget);
+      R.setClearColor(prevColor, prevAlpha);
       hide.forEach((o, i) => { o.visible = vis[i]; });
-      const c = document.createElement('canvas'); c.width = 384; c.height = 216;
-      c.getContext('2d').drawImage(src, (sw - w) / 2, (sh - h) / 2, w, h, 0, 0, 384, 216);
-      return c.toDataURL('image/jpeg', 0.75);
-    } catch { return null; }
+      rt.dispose();
+    }
+    // 上下を反転して canvas へ
+    const big = document.createElement('canvas'); big.width = W; big.height = H;
+    const bx = big.getContext('2d'), img = bx.createImageData(W, H), row = W * 4;
+    for (let y = 0; y < H; y++) img.data.set(pixels.subarray((H - 1 - y) * row, (H - y) * row), y * row);
+    bx.putImageData(img, 0, 0);
+    if (ss === 1) return big;
+    const out = document.createElement('canvas'); out.width = width; out.height = height;
+    const ox = out.getContext('2d'); ox.imageSmoothingQuality = 'high';
+    ox.drawImage(big, 0, 0, width, height);
+    return out;
+  }
+
+  // サムネイル画像を端末に保存（その場で大きく描き直す）
+  async saveThumbnailImage() {
+    if (this.renderer.xr.isPresenting) { this.ui.toast('VR を終えてから保存してください'); return; }
+    this.ui.busy(true, '画像を作っています…');
+    try {
+      await wait(30);
+      const c = this.renderOverview(1920, 1080);
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      const r = await store.downloadBlob(blob, store.thumbFileName(), 'image/png');
+      if (r !== 'cancelled') { this.ui.toast('サムネイル画像を保存しました'); sfx.save(); }
+    } catch (e) {
+      console.error(e); sfx.error(); this.ui.toast('画像を保存できませんでした');
+    } finally { this.ui.busy(false); }
   }
 
   async save(manual) {
@@ -459,6 +496,7 @@ class App {
         <button class="btn primary" data-a="resume">再開</button>
         <button class="btn" data-a="save">保存する</button>
         <button class="btn" data-a="backup">バックアップを作成</button>
+        <button class="btn" data-a="thumb">サムネイル画像を保存</button>
         <button class="btn" data-a="rename">名前を変更</button>
         <button class="btn" data-a="vr">VR で入る</button>
         <button class="btn" data-a="photo">撮影モード</button>
@@ -473,6 +511,7 @@ class App {
       on('resume', () => close());
       on('save', () => { close(); this.save(true); });
       on('backup', () => { close(); this.createBackup(); });
+      on('thumb', () => { close(); this.saveThumbnailImage(); });
       on('rename', async () => {
         const n = await this.ui.prompt('名前を変更', '', this.world.name);
         if (n && this.world) { this.world.name = n; this.ui.setPalaceName(n); box.querySelector('h3').textContent = n; this.markDirty(); }
