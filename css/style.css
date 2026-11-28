@@ -59,11 +59,11 @@ input, textarea, select { font-family: inherit; }
   animation: rise .5s ease both;
 }
 #load, #settings { background: rgba(255,255,255,0.6); }
-.screen-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.screen-head { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .screen-head h2 { margin: 0; font-size: 17px; font-weight: 500; letter-spacing: 0.1em; }
 .btn-ghost { background: none; border: none; font-size: 20px; width: 40px; height: 40px; border-radius: 10px; }
 .btn-ghost:hover { background: var(--soft); }
-.load-actions { padding: 14px 16px 0; }
+.load-actions { flex-shrink: 0; padding: 14px 16px 0; }
 .btn {
   padding: 11px 18px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font-size: 14px;
   transition: background .15s, border-color .15s;
@@ -74,17 +74,18 @@ input, textarea, select { font-family: inherit; }
 .btn.danger { color: var(--danger); }
 .btn.small { padding: 7px 12px; font-size: 13px; border-radius: 10px; }
 
-.palace-list { padding: 14px 16px 18px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; touch-action: pan-y; user-select: none; }
+.palace-list { flex: 1 1 auto; min-height: 0; align-content: start; grid-auto-rows: max-content; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 14px 16px 18px; padding-bottom: calc(18px + var(--safe-b)); overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; touch-action: pan-y; user-select: none; }
 .palace-card { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #fff; display: flex; flex-direction: column; }
+.palace-card > * { flex-shrink: 0; }
 .palace-card .thumb { aspect-ratio: 16 / 9; background: var(--soft) center / cover no-repeat; cursor: pointer; }
 .palace-card .info { padding: 10px 12px 4px; }
 .palace-card .name { font-size: 15px; font-weight: 500; word-break: break-all; }
 .palace-card .meta { font-size: 11.5px; color: var(--sub); margin-top: 3px; }
 .palace-card .actions { display: flex; gap: 6px; padding: 8px 10px 10px; flex-wrap: wrap; }
-.palace-card .actions .btn { flex: 1; padding: 7px 6px; font-size: 12.5px; }
+.palace-card .actions .btn { flex: 1 1 auto; white-space: nowrap; padding: 8px 10px; font-size: 12.5px; }
 .empty { color: var(--sub); text-align: center; padding: 30px 10px; font-size: 14px; grid-column: 1 / -1; line-height: 1.8; }
 
-.settings-form { padding: 6px 18px 18px; overflow-y: auto; touch-action: pan-y; }
+.settings-form { flex: 1 1 auto; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 6px 18px 18px; overflow-y: auto; touch-action: pan-y; }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--soft); }
 .set-row label { font-size: 14px; }
 .set-row small { display: block; color: var(--sub); font-size: 11.5px; margin-top: 2px; }
@@ -256,6 +257,11 @@ body.touch #tool-panel { flex-wrap: nowrap; justify-content: flex-start; }
   body.touch .cat-item img { width: 54px; height: 54px; }
   body.touch .cat-item small { display: none; }
   body.touch #tool-panel { padding: 6px 10px; }
+}
+
+/* 横持ちのスマホなど、高さが低い画面のタイトル */
+@media (max-height: 520px) {
+  .title-foot { display: none; }
 }
 
 @media (max-width: 720px) {
