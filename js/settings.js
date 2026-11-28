@@ -32,7 +32,6 @@ export const DEFAULTS = {
   vrPanelHand: 'left',     // VR：パレットを持つ手 'left' | 'right'
   vrPanelFollow: 'hand',   // VR：パレットの位置 'hand'（手につく）| 'view'（視線についてくる）| 'world'（その場に置く）
   vrPanelSize: 1,          // VR：パレットの大きさ
-  vrKeyboard: false,       // VR：パレットのキーボード（Quest のキーボードが使えないときの代わり）
   vrQuality: 'standard',   // VR：画質 'low' | 'standard' | 'high' | 'ultra'
 };
 
