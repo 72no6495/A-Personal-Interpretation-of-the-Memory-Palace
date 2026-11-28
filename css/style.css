@@ -340,3 +340,29 @@ body.think #btn-drawmode, body.think #door-hint { opacity: 0 !important; pointer
 #topbar, #side-buttons, #dock, #hint, #crosshair { transition: opacity .4s ease; }
 /* ボタンが7つでもラベルを1行に収める */
 body.touch .tool-btn span { white-space: nowrap; font-size: 10px; letter-spacing: -0.02em; }
+
+/* ---------- ノート（読む・編集・本棚） ---------- */
+.modal.note-modal { width: min(560px, 100%); display: flex; flex-direction: column; }
+.note-head { display: flex; align-items: center; gap: 8px; }
+.note-head h3 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "Shippori Mincho", serif; }
+.note-x { flex-shrink: 0; }
+.note-stage { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; min-height: 0; }
+.note-page { display: block; height: min(62vh, 560px); max-width: calc(100% - 76px); aspect-ratio: 600 / 848; object-fit: contain; border-radius: 6px; box-shadow: 0 6px 22px rgba(40,35,25,.16), 0 0 0 1px rgba(0,0,0,.05); touch-action: pan-y; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.note-nav { flex-shrink: 0; width: 34px; height: 64px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font-size: 26px; color: var(--ink); }
+.note-nav:disabled { opacity: .3; }
+.note-count { text-align: center; color: var(--sub); font-size: 12.5px; margin-top: 8px; }
+.note-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.note-left { display: flex; flex-wrap: wrap; gap: 6px; }
+.note-edit { flex-shrink: 0; padding: 10px 22px; }
+.note-label { display: block; font-size: 12.5px; color: var(--sub); margin-top: 12px; }
+.note-label input, .note-label textarea { margin-top: 5px; color: var(--ink); }
+.modal.note-editor textarea { height: min(38vh, 420px); min-height: 120px; font-family: "Klee One", serif; font-weight: 600; line-height: 1.75; }
+.note-edit-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.note-pages { color: var(--sub); font-size: 12px; }
+.shelf-grid { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding: 14px 10px 10px; border-bottom: 6px solid #d6bc98; border-radius: 4px; background: linear-gradient(#faf8f3, #f1ece2); min-height: 120px; }
+.shelf-book { width: 40px; border: 0; border-radius: 4px 4px 2px 2px; padding: 10px 2px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 4px; box-shadow: inset -3px 0 0 rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.12); cursor: pointer; transition: transform .15s; }
+.shelf-book:hover { transform: translateY(-6px); }
+.shelf-book span { writing-mode: vertical-rl; font-family: "Shippori Mincho", serif; font-size: 13px; letter-spacing: .08em; overflow: hidden; max-height: 100%; flex: 1; min-height: 0; }
+.shelf-book small { font-size: 9px; opacity: .75; writing-mode: vertical-rl; }
+@media (max-height: 520px) { .note-page { height: 58vh; } .modal.note-modal { padding: 12px 14px; } .modal.note-editor textarea { height: 30vh; } }
+@media (max-width: 520px) { .modal.note-editor textarea { height: 30vh; } }

@@ -1,6 +1,7 @@
 // ツール（手・ペン・消しゴム・文字・画像・家具）
 import * as THREE from './lib/three.module.min.js';
-import { buildModel, CATALOG_BY_ID, mountRotationX, footprintHalf, TONE_KEYS } from './furniture.js';
+import { buildModel, CATALOG_BY_ID, mountRotationX, footprintHalf, tonesFor } from './furniture.js';
+import { isNoteType } from './notes.js';
 import { disableRaycast } from './world.js';
 import { sfx } from './audio.js';
 import { settings } from './settings.js';
@@ -417,10 +418,11 @@ class FurnitureTool {
   ensureGhost() {
     const st = this.tools.state;
     if (!st.furnitureType) { this.removeGhost(); return null; }
-    if (this.ghost && this.ghostType === st.furnitureType && this.ghostTone === st.furnitureTone) return this.ghost;
+    if (this.ghost && this.ghostType === st.furnitureType && this.ghostTone === st.furnitureTone && this.ghostState === st.furnitureState) return this.ghost;
     this.removeGhost();
     const def = CATALOG_BY_ID[st.furnitureType];
-    const built = buildModel(st.furnitureType, st.furnitureTone || def.tone);
+    const built = buildModel(st.furnitureType, st.furnitureTone || def.tone, st.furnitureState || {});
+    this.ghostState = st.furnitureState;
     const root = new THREE.Group();
     built.group.rotation.x = mountRotationX(def.mount);
     root.add(built.group);
@@ -467,17 +469,26 @@ class FurnitureTool {
     const v = this.valid;
     if (!v) { sfx.error(); this.app.ui.toast('ここには置けません'); return; }
     const st = this.tools.state;
-    const furn = this.app.world.addFurniture({ type: st.furnitureType, tone: st.furnitureTone, host: v.host, x: v.x, y: v.y, rot: v.rot });
+    const furn = this.app.world.addFurniture({ type: st.furnitureType, tone: st.furnitureTone, host: v.host, x: v.x, y: v.y, rot: v.rot, state: st.furnitureState || null });
     if (!furn) return;
     const w = this.app.world;
+    // 本棚から取り出したノート：置くのと同時に本棚から外す
+    const from = st.fromShelf;
+    const shelfOp = from ? this.app.notes.removeFromShelf(from.shelfId, from.noteId) : null;
     let bundle = null;
     this.app.history.push({
-      undo: () => { bundle = w.removeObject(furn); this.tools.deselectIf(furn); },
-      redo: () => { if (bundle) w.restoreObject(bundle); },
+      undo: () => { bundle = w.removeObject(furn); this.tools.deselectIf(furn); if (shelfOp) shelfOp.undo(); },
+      redo: () => { if (bundle) w.restoreObject(bundle); if (shelfOp) shelfOp.redo(); },
     });
     this.app.markDirty();
     sfx.place();
     if (furn.type === 'gramophone') this.app.chooseTrack(furn);
+    if (from) {
+      st.furnitureType = null; st.furnitureState = null; st.fromShelf = null;
+      this.removeGhost();
+      this.tools.select('hand'); this.tools.setSelected(furn);
+      this.app.ui.toast('ノートを置きました。タップすると読めます');
+    } else if (isNoteType(furn.type)) this.app.notes.askTitle(furn);
   }
 }
 
@@ -672,7 +683,9 @@ class HandTool {
     const obj = this.resolve(t);
     const part = this.partAt(t, obj);
     const was = obj && obj === this.tools.selected;
-    if (obj !== this.tools.selected) { this.tools.setSelected(obj); if (obj && !part) sfx.pick(); }
+    if (obj !== this.tools.selected) { this.tools.setSelected(obj); if (obj && !part && !this.app.notes.isNoteThing(obj)) sfx.pick(); }
+    // ノートは開いて読む、本棚は中のノートを選ぶ
+    if (this.app.notes.handleTap(obj, part)) return;
     if (part && part !== 'light') this.togglePart(obj, part);
     else if (was && this.app.monitors.isMonitor(obj)) { this.app.monitors.next(obj); sfx.click(); }
     else if (part) this.togglePart(obj, part);
@@ -717,6 +730,7 @@ class HandTool {
     if (!d.moved) {
       // 選択中のモニターをもう一度クリック → 次の画面
       if (d.was && this.app.monitors.isMonitor(d.obj) && d.part !== 'music') { this.app.monitors.next(d.obj); sfx.click(); return; }
+      if (this.app.notes.handleTap(d.obj, d.part)) return;
       if (d.part) this.togglePart(d.obj, d.part);
       return;
     }
@@ -743,6 +757,8 @@ export class Tools {
       imageSize: 0.8,  // m
       furnitureType: null,
       furnitureTone: null,
+      furnitureState: null, // 本棚から取り出したノートなど、置くときの状態
+      fromShelf: null,
       furnitureMount: 'floor',
     };
     this.tools = {
@@ -873,7 +889,8 @@ export class Tools {
   cycleTone() {
     const o = this.selected; if (!o || o.kind !== 'furniture') return;
     const prev = o.tone;
-    const next = TONE_KEYS[(TONE_KEYS.indexOf(prev) + 1) % TONE_KEYS.length];
+    const keys = tonesFor(o.def);
+    const next = keys[(keys.indexOf(prev) + 1) % keys.length];
     this.setToneSelected(next);
   }
 

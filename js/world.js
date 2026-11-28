@@ -198,6 +198,19 @@ export class Palace {
     this.dirty = true;
   }
 
+  // 状態をまるごと置き換えて、形を作り直す（ノートの中身・本棚の中身など）
+  setState(furn, state) {
+    furn.state = JSON.parse(JSON.stringify(state));
+    if (!furn.state.open) furn.state.open = {};
+    this.rebuild(furn);
+  }
+  rebuild(furn) {
+    if (!this.furniture.has(furn.id)) return;
+    this._buildFurnitureModel(furn, false);
+    this._colliders = null;
+    this.dirty = true;
+  }
+
   // カレンダーの月など、形が変わる設定
   setProp(furn, key, value) {
     furn.state[key] = value;
@@ -455,6 +468,8 @@ export class Palace {
         const host = p.surfaces.get(f.host);
         if (!host) { next.push(f); continue; }
         if (!CATALOG_BY_ID[f.type]) continue;
+        // 以前のノートでページに描いてあるものは、描いた内容が消えないよう以前の形のままにする
+        if (f.type === 'notebook' && f.state && f.state.text === undefined && f.surfaces && (f.surfaces.pageL || f.surfaces.pageR)) f.state = { ...f.state, legacy: true };
         const furn = p.addFurniture({ id: f.id, type: f.type, tone: f.tone, host, x: f.x, y: f.y, rot: f.rot, scale: f.scale || 1, state: f.state });
         for (const [n, d] of Object.entries(f.surfaces || {})) if (furn.surfaces[n]) jobs.push(furn.surfaces[n].loadData(d));
       }
